@@ -1,0 +1,161 @@
+body, h1, h2, h3, h4, h5, h6,
+.uk-navbar-nav > li > a {
+    font-family: "Proxima Nova", "Helvetica Neue", Helvetica, "PingFang SC", "Microsoft YaHei", "微软雅黑", Arial, sans-serif;
+}
+
+html, body {
+    margin: 0px;
+    height: 100%;
+}
+
+.logo_icon {
+    height: 23px;
+    width: 23px;
+    margin-right: 5px;
+}
+
+.icon {
+    margin-right: 5px;
+    height: 15px;
+    width: 15px;
+}
+
+body > .uk-grid {
+    height: 100%;
+    scroll: none;
+}
+
+th{
+    background-color: #1d5782;
+    /*background-image: linear-gradient(to top, #2394d3, #1f8ac3);*/
+    background-image: linear-gradient(to top, #696969, #555555, #696969);
+    text-shadow: 0 2px 0 rgba(0, 0, 0, .4);
+    color: #fff;
+}
+
+table{
+    border-right: 4px;
+}
+
+.summery_badge{
+    height: 130px;
+    width: 130px;
+    color: #fff;
+    border:2px #000 solid;
+}
+
+.sidebar{
+
+}
+
+.frameBody{
+    padding: 0px 0px 0px 35px;
+}
+
+.frameBody > .uk-grid > div:first-child {
+    min-height: 85%;
+    padding-right: 35px;
+}
+
+
+.frameBody > .uk-grid > div:last-child {
+    min-height:40px;
+    margin-top: 35px;
+}
+
+.port_input_button {
+    width: 55px;
+}
+
+.mr5 {
+    margin-right: 5px;
+    margin-left: 5px;
+}
+
+.summeryField {
+    font-weight: bolder;
+    border: 1px solid #ddd;
+    color:#020202;
+    background: #fafafa;
+    background-image: linear-gradient(to bottom, #f3f3f3, #e7e7e7)
+    /*background-image: linear-gradient(to top, #1f83bc, #2399d8);*/
+}
+
+.dialogField{
+    text-align: right;
+    font-weight: bolder;
+    color:#000000;
+    vertical-align: middle !important;
+}
+
+.created, .running {
+    background-color: #ebf7fd;
+    color: #2d7091;
+    border-color: rgba(45, 112, 145, 0.3);
+    border: 1px solid #ddd;
+}
+
+.restarting, .paused {
+    background: #f2fae3;
+    color: #659f13;
+    border-color: rgba(101, 159, 19, 0.3);
+    border: 1px solid #ddd;
+}
+
+.stop, .dead {
+    background: #fff1f0;
+    color: #d85030;
+    border-color: rgba(216, 80, 48, 0.3);
+    border: 1px solid #ddd;
+}
+
+.exited {
+    background: #fffceb;
+    color: #e28327;
+    border-color: rgba(226, 131, 39, 0.3);
+    border: 1px solid #ddd;
+}
+.terminal{
+    /*color: #19f900;*/
+    background-color: #333333;
+    padding: 0px;
+    height: 460px;
+}
+
+.uk-switcher{
+    padding:10px;
+    border:1px solid #e5e5e5;
+    border-top: 0px
+}
+
+.uk-tab > li > a{
+    color:#666666;
+}
+
+.uk-tab > li.uk-active > a{
+    color:#1d8acb;
+    font-weight: bold;
+    background: #f5f5f5;
+}
+
+.uk-tab > li > a:hover,
+.uk-tab > li > a:focus,
+.uk-tab > li.uk-open > a {
+    border-color: rgba(0, 0, 0, 0.06);
+    background: #f5f5f5;
+    color: #333333;
+    /* 2 */
+    outline: none;
+}
+
+.table_colume_index{
+    width: 30px
+}
+
+
+.uk-table caption{
+    font-size: 14px;
+    color:#000;
+}
+
+

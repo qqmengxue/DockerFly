@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="../../img/favicon.ico"/>
+<link rel="stylesheet" href="../../css/uikit/uikit.css"/>
+<script src="../../js/common/jquery.min.js"></script>
+<script src="../../js/common/vue.min.js"></script>
+<script src="../../js/common/uikit.js"></script>
+<script src="../../js/common/xterm.js"></script>
+<link rel="stylesheet" href="../../css/main.css"/>
+<link rel="stylesheet" href="../../css/xterm.css"/>
+
+<script lang="javascript" src="../../js/utils.js"></script>
+<script lang="javascript" src="../../js/docker.js"></script>
+<script lang="javascript">
+    function init() {
+        serviceViewerVue = new Vue({
+                el: '#viewerApp',
+                data:{
+                },
+                computed: {
+                    viewService: function () {
+                        try {
+                            var serviceId = getQueryString("id");
+                            var viewService= getServices(serviceId);
+
+                            if (viewService.length == 1) {
+                                viewService = viewService[0]
+                                document.title = viewService.spec.name + " - Service";
+                                return viewService;
+                            } else {
+                                return null;
+                            }
+                        } catch (e) {
+                            alertError(e)
+                        }
+                    },
+                    taskList: function () {
+                        try {
+                            var serviceId = getQueryString("id");
+                            var taskList = converTask(getTaskList(serviceId));
+                            return taskList;
+                        } catch (e) {
+                            alertError(e)
+                        }
+                    },
+
+                    networks: function(){
+                        try {
+                            return getNetworksIdAndName();
+                        } catch (e) {
+                            alertError(e)
+                        }
+                    }
+                }
+        });
+    }
+</script>
+<body onload="init()" class="frameBody">
+<div id="viewerApp" class="uk-grid" style="display: none" v-show="this.viewService!=null">
+    <div class="uk-width-6-6">
+        <div class="uk-panel"></div>
+        <h3 class="uk-text-middle">
+            <span class="uk-text-danger uk-text-bold uk-text-large">{{viewService.name}}</span>
+        </h3>
+
+        <ul class="uk-tab" data-uk-switcher="{connect:'#Viewers'}">
+            <li><a href="#"><span class="uk-icon-sliders"></span> Summery</a></li>
+            <li><a href="#"><span class="uk-icon-database"></span> Resource</a></li>
+            <li><a href="#"><span class="icon uk-icon-tasks"></span> Task</a></li>
+        </ul>
+        <div id="Viewers" class="uk-switcher">
+            <div>
+                <div>
+                    <table class="uk-table uk-overflow-container uk-panel-box">
+                        <caption>
+                            <div class="uk-grid">
+                                <div class="uk-width-5-6"><span class="uk-icon-info-circle"></span> Service infomation</div>
+                            </div>
+                        </caption>
+                        <tbody>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">ID </td>
+                            <td class="uk-text-bold">{{viewService.id |shortString(12)}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Name </td>
+                            <td class="uk-text-primary">{{viewService.spec.name}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Image </td>
+                            <td class="uk-text-success">{{viewService.spec.taskTemplate.containerSpec.image}}</td>
+                        </tr>
+
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Cmd </td>
+                            <td class="uk-text-warning">
+                                <span class="uk-text-warning">
+                                    <span v-for="argItem in viewService.spec.taskTemplate.containerSpec.args">
+                                        {{argItem}}
+                                    </span>
+                                </span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Scheduling </td>
+                            <td class="uk-text-bold">{{viewService.spec.mode.replicated==null?"Global":"Replicate"}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Updated </td>
+                            <td class="">{{viewService.updatedAt | strToDate}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Created </td>
+                            <td class="">{{viewService.createdAt | strToDate}}</td>
+                        </tr>
+                        </tbody>
+                    </table>
+
+                </div>
+            </div>
+            <!-- 资源信息 -->
+            <div>
+                <table class="uk-table uk-overflow-container uk-panel-box">
+                    <caption>
+                        <div class="uk-grid">
+                            <div class="uk-width-5-6"><span class="uk-icon-info-circle"></span> Service infomation</div>
+                        </div>
+                    </caption>
+                    <tbody>
+                    <tr>
+                        <td class="uk-width-1-10 uk-text-right summeryField">CPU </td>
+                        <td class="uk-text-primary">{{viewService.spec.taskTemplate.resources.limits.nanoCPUs/1000000000}}</td>
+                    </tr>
+                    <tr>
+                        <td class="uk-width-1-10 uk-text-right summeryField">Memory </td>
+                        <td class="uk-text-primary">{{viewService.spec.taskTemplate.resources.limits.memoryBytes/1024/1024}} MB</td>
+                    </tr>
+                    <tr v-if="viewService.spec.endpointSpec.ports.length!=0">
+                        <td class="uk-width-1-10 uk-text-right summeryField">Ports </td>
+                        <td class="uk-text-muted">
+                            <div v-for="port in viewService.spec.endpointSpec.ports">
+                                <h4 class="uk-margin-bottom-remove">
+                                    <span class="uk-badge uk-badge-danger">{{port.protocol.toUpperCase()}}</span>
+                                    {{port.publishedPort}}
+                                    <span class="uk-icon-exchange"></span> {{port.targetPort}}
+                                </h4>
+                            </div>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+
+                <table class="uk-table uk-overflow-container uk-panel-box"
+                       v-if="viewService.endpoint.virtualIPs.length!=0">
+                    <caption>
+                        <div class="uk-grid">
+                            <div class="uk-width-5-6"><span class="uk-icon-sitemap"></span> Network infomation</div>
+                        </div>
+                    </caption>
+                    <thead>
+                    <th class="uk-width-3-5">Network</th>
+                    <th>IP</th>
+                    </thead>
+                    <tbody>
+                    <tr v-for="virtualIP in viewService.endpoint.virtualIPs">
+                        <td><a :href="'../network/viewer.html?id='+virtualIP.networkId" class="uk-text-bold">{{networks[virtualIP.networkId]}}</a>
+                            <span class="uk-text-muted">[{{virtualIP.networkId}}]</span></td>
+                        <td class="uk-text-danger">{{virtualIP.addr}}</td>
+                    </tr>
+                    </tbody>
+                </table>
+                <table class="uk-table uk-overflow-container uk-panel-box"
+                       v-if="viewService.spec.taskTemplate.containerSpec.mounts.length!=0">
+                    <caption>
+                        <div class="uk-grid">
+                            <div class="uk-width-5-6"><span class="uk-icon-clone"></span> Mount infomation</div>
+                        </div>
+                    </caption>
+                    <thead>
+                    <th class="uk-width-1-10">Type</th>
+                    <th class="uk-width-4-10">Source</th>
+                    <th class="uk-width-4-10">Target</th>
+                    <th class="uk-width-1-10">ReadOnly</th>
+                    </thead>
+                    <tbody>
+                    <tr v-for="mount in viewService.spec.taskTemplate.containerSpec.mounts">
+                        <td class="uk-text-primary uk-text-success">{{mount.type}}</td>
+                        <td class="uk-text-success">
+                            <a :href="'../volume/viewer.html?id='+mount.source" v-if="mount.type=='volume'">{{mount.source}}</a>
+                            <span v-else>{{mount.source}}</span>
+                        </td>
+                        <td class="uk-text-danger uk-text-bold">{{mount.target}}</td>
+                        <td><span class="uk-text-warning" :class="{'uk-icon-check-square':mount.readOnly,'uk-icon-check-square-o':!mount.readOnly}"></span></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <!-- 任务信息 -->
+            <div style="height: 400px;">
+                <table id="taskList" class="uk-table uk-overflow-container uk-panel-box">
+                    <thead>
+                    <tr>
+                        <th class="uk-width-1-10 uk-text-center">ID</th>
+                        <th class="uk-width-1-10 uk-text-center">Slot</th>
+                        <th class="uk-width-2-10">Node <span class="uk-text-small uk-text-muted">( name / host )</span></th>
+                        <th class="uk-width-2-10">Container</th>
+                        <th class="uk-width-1-10 uk-text-center">State</th>
+                        <th class="uk-width-2-10 uk-text-center">Create</th>
+                    </tr>
+                    </thead>
+
+                    <tbody>
+                    <tr v-for="(task,index) in taskList">
+                        <td class=" uk-text-middle uk-text-bold uk-text-primary uk-text-center">{{task.id | shortString(12)}}</td>
+                        <td class=" uk-text-middle uk-text-center">{{task.slot}}</td>
+                        <td class=" uk-text-middle uk-text-bold ">
+                            <a class="uk-text-success" :href="'../node/list.html?id='+task.nodeId">
+                                <span class="uk-text-warning">{{task.nodeName}}</span> /
+                                <span class="uk-text-success">{{task.hostname}}</span>
+                            </a>
+                        </td>
+                        <td class=" uk-text-middle uk-text-bold ">
+                            <a class="uk-text-danger" :href="'/module/container/viewer.html?id='+task.status.containerStatus.containerId"
+                               target="viewer"
+                               v-if="task.status.containerStatus.containerName!=null">
+                                <span class="uk-text-success running"></span> {{task.status.containerStatus.containerName|delFirestChar|shortString(18)}}
+                            </a>
+                            <span class="uk-text-danger" v-else>
+                                <span class="uk-text-primary stop"></span> {{task.status.containerStatus.containerId|shortString(12)}}
+                            </span>
+                        </td>
+                        <td class=" uk-text-middle uk-text-bold uk-text-center">{{task.status.state}}</td>
+                        <td class=" uk-text-middle uk-text-small uk-text-center">{{task.createdAt|strToDate}}</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="uk-width-6-6">
+        <div style="min-height:40px;" class="uk-text-center uk-margin-bottom">
+            <div><img height="27" width="120" src="../../img/logo.png"/></div>
+            <div>Copyright <span class="uk-icon-copyright"></span> Voovan Vsetful</div>
+            <div>Powered by Voovan open source framework.</div>
+            <div></div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

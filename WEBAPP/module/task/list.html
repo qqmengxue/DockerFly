@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="../../img/favicon.ico"/>
+<link rel="stylesheet" href="../../css/uikit/uikit.css"/>
+<script src="../../js/common/jquery.min.js"></script>
+<script src="../../js/common/vue.min.js"></script>
+<script src="../../js/common/uikit.js"></script>
+
+<link rel="stylesheet" href="../../css/main.css"/>
+<script lang="javascript" src="../../js/utils.js"></script>
+<script lang="javascript" src="../../js/docker.js"></script>
+<script src="../../js/docker.js"></script>
+
+<script lang="javascript">
+    doImport("org.voovan.docker.command.Task.CmdTaskList")
+
+    function init() {
+        taskListVue = new Vue({
+            el: '#taskApp',
+            data: {
+                taskList: null,
+                queryParams: {
+                    id:"",
+                    service:"",
+                    node:"",
+                    desiredState:"ALL"
+                }
+            },
+
+            methods: {
+                //查询方法
+                query: function () {
+                    try {
+                        var cmdTaskList = new CmdTaskList();
+                        connect(cmdTaskList);
+                        if (this.queryParams.id != "") {
+                            cmdTaskList.id([this.queryParams.id]);
+                        }
+
+                        if (this.queryParams.service != "") {
+                            cmdTaskList.service(this.queryParams.service);
+                        }
+
+                        if (this.queryParams.node != "") {
+                            cmdTaskList.node(this.queryParams.node);
+                        }
+
+                        if (this.queryParams.desiredState != "ALL") {
+                            cmdTaskList.desiredState([this.queryParams.desiredState]);
+                        }
+
+
+                        this.taskList = converTask(cmdTaskList.send().sortBy("name"));
+                        cmdTaskList.close();
+                        cmdTaskList.release();
+                    } catch (e) {
+                        alertError(e)
+                    }
+                }
+            }
+        });
+        var urlId = getQueryString("id");
+        taskListVue.queryParams.id = urlId==null?"" : urlId;
+
+        var urlService= getQueryString("service");
+        taskListVue.queryParams.service = urlService==null?"" : urlService;
+
+        if(urlId != null || urlService!=null){
+            $("#query").hide();
+        }
+        taskListVue.query();
+    }
+</script>
+<body onload="init()" class="frameBody">
+<div id="taskApp" class="uk-grid" style="display: none" v-show="this.taskList!=null">
+    <div class="uk-width-6-6">
+        <div class="uk-panel"></div>
+        <h3></h3>
+        <div class="uk-grid uk-margin">
+            <div class="uk-width-1-2">
+                <h3 class="uk-text-middle">
+                    <span class="icon uk-icon-tasks"></span>Task manager
+                </h3>
+            </div>
+            <div class="uk-width-1-2 uk-text-right">
+                <a href="list.html"><span class="uk-icon-refresh"></span></a>
+            </div>
+        </div>
+        <div id="query" class="uk-panel uk-panel-box uk-text-bold">
+            <div class="uk-grid">
+                <div class="uk-width-6-6 uk-form">
+                    <fieldset data-uk-margin>
+                    <span class="mr5">Id:</span><input class="uk-form-width-medium"
+                           type="text" placeholder="task id" v-model="queryParams.id">
+                    <span class="mr5">Service:</span><input class="uk-form-width-medium"
+                        type="text" placeholder="service id" v-model="queryParams.service">
+                    <span class="mr5">Node:</span><input class="uk-form-width-medium"
+                        type="text" placeholder="node id" v-model="queryParams.node">
+                    <span class="mr5">Desired State:</span>
+                        <select v-model="queryParams.desiredState">
+                        <option value="ALL">All</option>
+                        <option value="running">running</option>
+                        <option value="shutdown">shutdown</option>
+                        <option value="accepted">accepted</option>
+                    </select>
+                    <a class="uk-button uk-button-small" @click="query()"><i class="uk-icon-search"></i></a>
+                    </fieldset>
+                </div>
+            </div>
+        </div>
+        <table id="taskList" class="uk-table uk-overflow-container uk-panel-box">
+            <thead>
+            <tr>
+                <th class="uk-text-center table_colume_index"> NO.</th>
+                <th class="uk-width-1-10">ID</th>
+                <th class="uk-width-2-10">Node <span class="uk-text-small uk-text-muted">( name / host )</span></th>
+                <th class="uk-width-1-10">Service</th>
+                <th class="uk-width-1-10">Container</th>
+                <th class="uk-width-1-10 uk-text-center">State</th>
+                <th class="uk-width-1-10 uk-text-center">DesiredState</th>
+                <th class="uk-width-2-10 uk-text-center">Create</th>
+            </tr>
+            </thead>
+
+            <tbody>
+            <tr v-for="(task,index) in taskList">
+                <td class="uk-text-center uk-text-middle uk-text-small">{{index+1}}</td>
+                <td class=" uk-text-middle uk-text-bold uk-text-primary">{{task.id | shortString(12)}}</td>
+                <td class=" uk-text-middle">
+                    <a class="uk-text-success" :href="'../node/list.html?id='+task.nodeId">
+                        <span class="uk-text-warning">{{task.nodeName}}</span> /
+                        <span class="uk-text-success">{{task.hostname}}</span>
+                    </a>
+                </td>
+                <td class=" uk-text-middle uk-text-bold ">
+                    <a class="uk-text-warning" :href="'/module/service/list.html?id='+task.serviceId"
+                       v-if="task.serviceName!=null">
+                        {{task.serviceName}}
+                    </a>
+                    <span class="uk-text-warning" v-else>
+                        {{task.serviceId|shortString(12)}}
+                    </span>
+                </td>
+                <td class=" uk-text-middle uk-text-bold ">
+                    <a class="uk-text-danger" :href="'/module/container/list.html?id='+task.status.containerStatus.containerId"
+                       v-if="task.status.containerStatus.containerName!=null">
+                        <span class="uk-text-success running"></span> {{task.status.containerStatus.containerName|delFirestChar|shortString(18)}}
+                    </a>
+                    <span class="uk-text-danger" v-else>
+                        <span class="uk-text-primary stop"></span> {{task.status.containerStatus.containerId|shortString(12)}}
+                    </span>
+                </td>
+                <td class=" uk-text-middle uk-text-bold uk-text-center">{{task.status.state}}</td>
+                <td class=" uk-text-middle uk-text-bold uk-text-center">{{task.desiredState}}</td>
+                <td class=" uk-text-middle uk-text-small uk-text-center">{{task.createdAt|strToDate}}</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="uk-width-6-6">
+        <div style="min-height:40px;" class="uk-text-center uk-margin-bottom">
+            <div><img height="27" width="120" src="../../img/logo.png"/></div>
+            <div>Copyright <span class="uk-icon-copyright"></span> Voovan Vsetful</div>
+            <div>Powered by Voovan open source framework.</div>
+            <div></div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="img/favicon.ico"/>
+<link rel="stylesheet" href="css/uikit/uikit.css"/>
+<script src="js/common/jquery.min.js"></script>
+<script src="js/common/vue.min.js"></script>
+<script src="js/common/uikit.js"></script>
+
+<link rel="stylesheet" href="css/main.css"/>
+<script lang="javascript" src="js/utils.js"></script>
+<script lang="javascript" src="js/docker.js"></script>
+<script lang="javascript">
+    doImport("org.voovan.docker.command.Swarm.CmdSwarmInit")
+    doImport("org.voovan.docker.command.Swarm.CmdSwarmJoin")
+    doImport("org.voovan.docker.command.Swarm.CmdSwarmLeave")
+    function init() {
+        swarmInfoVue = new Vue({
+            el: '#dockerApp',
+            data: {
+                initParams:{
+                    advertiseAddr:null,
+                    listenAddr:null,
+                    taskHistoryRetentionLimit:null
+                },
+                joinParams:{
+                    advertiseAddr:null,
+                    listenAddr:null,
+                    remoteAddrs:null,
+                    joinToken:null
+                }
+            },
+            computed:{
+                swarmInfo: function(){
+                   return getSwarmInfo();
+                },
+                isSwarmNode: function(){
+                    var dockerInfo = getDockerInfo()
+                    return dockerInfo.swarm.remoteManagers != null;
+                }
+            },
+            methods : {
+                init: function(){
+                    try {
+                        var cmdSwarmInit = new CmdSwarmInit();
+                        connect(cmdSwarmInit);
+                        if(this.initParams.advertiseAddr!=null){
+                            cmdSwarmInit.advertiseAddr(this.initParams.advertiseAddr)
+                        }
+
+                        if(this.initParams.listenAddr!=null){
+                            cmdSwarmInit.listenAddr(this.initParams.listenAddr)
+                        }
+
+                        if(this.initParams.taskHistoryRetentionLimit!=null){
+                            cmdSwarmInit.taskHistoryRetentionLimit(this.initParams.taskHistoryRetentionLimit)
+                        }
+                        cmdSwarmInit.send();
+                        cmdSwarmInit.close();
+                        cmdSwarmInit.release();
+                        alert("Init swarm success.");
+                        closeDialog("initSwarmDialog")
+                        parent.location.reload()
+                    } catch (e) {
+                        alertError(e)
+                        return null;
+                    }
+
+                },
+                join: function(){
+                    try {
+                        var cmdSwarmJoin = new CmdSwarmJoin();
+                        connect(cmdSwarmJoin);
+                        if(this.joinParams.advertiseAddr!=null){
+                            cmdSwarmJoin.advertiseAddr(this.joinParams.advertiseAddr)
+                        }
+
+                        if(this.joinParams.listenAddr!=null){
+                            cmdSwarmJoin.listenAddr(this.joinParams.listenAddr)
+                        }
+
+                        if(this.joinParams.remoteAddrs!=null){
+                            cmdSwarmJoin.remoteAddrs(this.joinParams.remoteAddrs.split(";"))
+                        }
+
+                        if(this.joinParams.joinToken!=null){
+                            cmdSwarmJoin.joinToken(this.joinParams.joinToken)
+                        }
+                        cmdSwarmJoin.send();
+                        cmdSwarmJoin.close();
+                        cmdSwarmJoin.release();
+                        alert("Join to swarm manager success.");
+                        closeDialog("joinSwarmDialog")
+                        location.reload()
+                    } catch (e) {
+                        alertError(e)
+                        return null;
+                    }
+
+                },
+                leave:function(){
+                    UIkit.modal.confirm("Are you sure to leava this swarm ? ", function(){
+                        try{
+                            var cmdSwarmLeave = new CmdSwarmLeave();
+                            connect(cmdSwarmLeave);
+                            cmdSwarmLeave.force(true);
+                            cmdSwarmLeave.send()
+                            cmdSwarmLeave.close();
+                            cmdSwarmLeave.release();
+                            alert("Swarm leave operation finished");
+                            location.reload()
+                        } catch (e) {
+                            alert("Swarm leave operation finished");
+                            alertError(e)
+                            return null;
+                        }
+                    })
+                }
+
+            }
+        });
+
+    }
+</script>
+<body onload="init()" class="frameBody">
+<div id="dockerApp" class="uk-grid">
+    <div class="uk-width-6-6">
+        <div class="uk-panel"></div>
+        <h3></h3>
+        <div style="display: none" v-if="swarmInfo!=null" v-show="swarmInfo!=null" >
+            <h3 class="uk-text-middle"><span class="icon uk-icon-connectdevelop"></span> Swarm info</h3>
+            <table class="uk-table uk-overflow-container uk-panel-box">
+                <tbody>
+                <tr>
+                    <td class="uk-width-1-10 uk-text-right summeryField">ID:</td>
+                    <td class="uk-width-1-4 uk-text-bold uk-text-primary">{{swarmInfo.id}}</td>
+                    <td class="uk-width-1-10 uk-text-right summeryField">Name:</td>
+                    <td class="uk-width-1-4">{{swarmInfo.spec.name}}</td>
+
+                </tr>
+                <tr>
+                    <td class="uk-width-1-10 uk-text-right summeryField">version:</td>
+                    <td class="uk-width-1-4 ">
+                        {{swarmInfo.version.index}}
+                    </td>
+                    <td class="uk-width-1-10 uk-text-right summeryField">Task history:</td>
+                    <td class="uk-width-1-4 ">
+                        {{swarmInfo.spec.orchestration.taskHistoryRetentionLimit}}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="uk-width-1-10 uk-text-right summeryField">Created:</td>
+                    <td class="uk-width-1-4">{{swarmInfo.createdAt|strToDate}}</td>
+                    <td class="uk-width-1-10 uk-text-right summeryField">Updated:</td>
+                    <td class="uk-width-1-4 ">
+                        {{swarmInfo.updatedAt|strToDate}}
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+            <h3 class="uk-text-middle"><span class="icon uk-icon-road"></span> JoinTokens</h3>
+            <table id="networkList" class="uk-table uk-overflow-container uk-panel-box">
+                <tbody>
+                <tr>
+                    <td class="uk-width-1-10 uk-text-right summeryField" >Manager:</td>
+                    <td class="uk-width-9-10 uk-text-bold uk-text-success" colspan="3">{{swarmInfo.joinTokens.manager}}</td>
+                </tr>
+                <tr>
+                    <td class="uk-width-1-10 uk-text-right summeryField">Worker:</td>
+                    <td class="uk-width-9-10 uk-text-bold uk-text-danger" colspan="3">{{swarmInfo.joinTokens.worker}}</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="uk-panel uk-panel-box uk-text-bold" style="margin-top: 35px;">
+            <div class="uk-grid">
+                <div class="uk-text-left uk-width-3-5">
+                    <h3 class="uk-text-bolder uk-text-primary" style="padding-top:3px">Swarm operation <span class="icon uk-icon-bullseye"></span> </h3>
+                </div>
+                <div class="uk-form uk-text-right uk-width-2-5 uk-text-middle">
+                    <div class="uk-button-group">
+                        <a v-if="!isSwarmNode" class="uk-button  uk-button-primary" onclick="openDialog('initSwarmDialog')">Init</a>
+                        <a v-if="!isSwarmNode" class="uk-button  uk-button-success" onclick="openDialog('joinSwarmDialog')">Join</a>
+                        <a v-if="isSwarmNode" class="uk-button  uk-button-danger" @click="leave">Leave</a>
+                    </div>
+                    <a class="uk-button  uk-button-link" data-uk-modal="{target:'#helpDialog'}"><span class="uk-icon-question-circle"></span></a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="initSwarmDialog" class="uk-modal">
+        <div class="uk-modal-dialog uk-overflow-container">
+            <a href="#" class="uk-modal-close uk-close uk-close-alt"></a>
+            <div class="uk-modal-header"><h2 class="uk-text-success">Init swarm</h2></div>
+            <div class="uk-form">
+                <table class="uk-table uk-overflow-container uk-panel-box">
+                    <tr>
+                        <td class="dialogField">Task history:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="Task history limit" v-model="initParams.taskHistoryRetentionLimit"/></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Advertise Addr:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="Advertise address" v-model="initParams.advertiseAddr"/></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Listen Addr:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="Listen address" v-model="initParams.listenAddr"/></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField" colspan="2">
+                            <a class="uk-button uk-button-primary" @click="init()">Init</a>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div id="joinSwarmDialog" class="uk-modal">
+        <div class="uk-modal-dialog uk-overflow-container">
+            <a href="#" class="uk-modal-close uk-close uk-close-alt"></a>
+            <div class="uk-modal-header"><h2 class="uk-text-success">Join swarm</h2></div>
+            <div class="uk-form">
+                <table class="uk-table uk-overflow-container uk-panel-box">
+                    <tr>
+                        <td class="dialogField">JoinToken</td>
+                        <td><textarea class="uk-form-width-medium" type="text"
+                                      placeholder="Join token" v-model="joinParams.joinToken"></textarea></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Remote Addr:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                      placeholder="Remote address" v-model="joinParams.remoteAddrs"/></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Advertise Addr:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="Advertise address" v-model="joinParams.advertiseAddr"/></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Listen Addr:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="Listen address" v-model="joinParams.listenAddr"/></td>
+                    </tr>
+
+                    <tr>
+                        <td class="dialogField" colspan="2">
+                            <a class="uk-button uk-button-primary" @click="join()">Join</a>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div id="helpDialog" class="uk-modal">
+        <div class="uk-modal-dialog uk-modal-dialog-large uk-overflow-container">
+            <a href="#" class="uk-modal-close uk-close uk-close-alt"></a>
+            <h3>Try to run this command to let swarm port cross the firewall:</h3>
+            <div class="uk-panel-box">
+                <code>firewall-cmd --zone=public --add-port=2377/tcp --permanent</code><br/>
+                <code>firewall-cmd --zone=public --add-port=7946/tcp --permanent</code><br/>
+                <code>firewall-cmd --zone=public --add-port=7946/udp --permanent</code><br/>
+                <code>firewall-cmd --zone=public --add-port=4789/tcp --permanent</code><br/>
+                <code>firewall-cmd --zone=public --add-port=4789/udp --permanent</code><br/>
+                <code>firewall-cmd --reload</code><br/>
+            </div>
+        </div>
+    </div>
+    <div class="uk-width-6-6">
+        <div style="min-height:40px;" class="uk-text-center uk-margin-bottom">
+            <div><img height="27" width="120" src="img/logo.png"/></div>
+            <div>Copyright <span class="uk-icon-copyright"></span> Voovan Vsetful</div>
+            <div>Powered by Voovan open source framework.</div>
+            <div></div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

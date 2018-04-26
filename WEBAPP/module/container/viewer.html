@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="../../img/favicon.ico"/>
+<link rel="stylesheet" href="../../css/uikit/uikit.css"/>
+<script src="../../js/common/jquery.min.js"></script>
+<script src="../../js/common/vue.min.js"></script>
+<script src="../../js/common/uikit.js"></script>
+<script src="../../js/common/xterm.js"></script>
+<link rel="stylesheet" href="../../css/main.css"/>
+<link rel="stylesheet" href="../../css/xterm.css"/>
+
+<script lang="javascript" src="../../js/utils.js"></script>
+<script lang="javascript" src="../../js/docker.js"></script>
+
+<script lang="javascript">
+    doImport("org.voovan.docker.command.Container.CmdContainerLogs")
+    doImport("org.voovan.docker.command.Container.CmdContainerTop")
+    doImport("org.voovan.docker.command.Container.CmdContainerAttach")
+    doImport("org.voovan.docker.command.Container.CmdContainerStats")
+    doImport("org.voovan.docker.command.Exec.CmdExecCreate")
+    doImport("org.voovan.docker.command.Exec.CmdExecStart")
+
+    function init() {
+        containerViewerVue = new Vue({
+            el: '#viewerApp',
+            data: {
+                logInfo :{
+                    terminal: null,
+                    interval: 1000,
+                    lineCount: "100",
+                    loop: null,
+                    cmdObject: null
+                },
+                stats : null,
+                processes: null,
+                execInfo: {
+                    cmd: "/bin/sh",
+                    terminal: null,
+                    interval : 200,
+                    loop : null,
+                    cmdObject: null
+                }
+            },
+            computed: {
+                viewContainer: function () {
+                    var containerId = getQueryString("id");
+                    var viewContainer = getContainerDetail(containerId);
+                    if(viewContainer != null){
+                        document.title = delFirestChar(viewContainer.name) +
+                            " - Container";
+                        return viewContainer;
+                    }else {
+                        return null;
+                    }
+                }
+            },
+            methods:{
+
+
+                logView: function(){
+                    try{
+                        if(this.logInfo.loop !=null){
+                            alert("Log view is running.")
+                            return;
+                        }
+
+                        //构造终端面板
+                        if(this.logInfo.terminal==null){
+                            this.logInfo.terminal = terminal("logPanel")
+                        }
+
+                        var cmdContainerLogs = new CmdContainerLogs(this.viewContainer.id);
+                        cmdContainerLogs.connect1(60);
+                        cmdContainerLogs.tail(this.logInfo.lineCount);
+
+                        var logData = cmdContainerLogs.send().split("\u000a");
+                        for(var logIndex in logData){
+                            var logLine = logData[logIndex];
+                            if(!(logLine instanceof Function) && logIndex != logData.length-1) {
+                                this.logInfo.terminal.write(logLine + "\r\n");
+                            }
+                        }
+
+                        var cmdContainerAttach = new CmdContainerAttach(this.viewContainer.id);
+                        this.logInfo.cmdObject = cmdContainerAttach;
+                        cmdContainerAttach.stream(true);
+                        cmdContainerAttach.stdout(true);
+                        cmdContainerAttach.connect();
+                        cmdContainerAttach.send();
+
+                        //循环输出日志
+                        this.logInfo.loop = setInterval(
+                            function() {
+                                try {
+                                    var logData = cmdContainerAttach.loadStream();
+                                    if (logData != null) {
+                                        logData = logData.replaceAll("\r", "")
+                                        logData = logData.replaceAll("\n", "\u0000")
+                                        logData = logData.replaceAll("\u0000", "\r\n");
+                                        containerViewerVue.logInfo.terminal.write(logData);
+                                    } else {
+                                        containerViewerVue.logStop();
+                                    }
+                                }catch(e){
+                                    containerViewerVue.logStop();
+                                    alertError(e)
+                                }
+                            }, this.logInfo.interval
+                        );
+                    } catch (e) {
+                        alertError(e);
+                    }
+                },
+
+                logStop: function(){
+                    clearInterval(this.logInfo.loop)
+                    this.logInfo.loop = null;
+                    try {
+                        if (this.logInfo.cmdObject != null) {
+                            this.logInfo.cmdObject.close();
+                            this.logInfo.cmdObject.release();
+                        }
+                    }catch(e){
+                    console.log(e.message)
+                    }
+                    this.logInfo.cmdObject = null;
+                },
+
+                logClear: function(){
+                    this.logInfo.timeStamp = null;
+                    this.logInfo.terminal.clear();
+                },
+
+                processView: function(){
+                    try{
+                        var cmdContainerTop = new CmdContainerTop(this.viewContainer.id)
+                        connect(cmdContainerTop);
+                        this.processes = cmdContainerTop.send();
+                        cmdContainerTop.close();
+                        cmdContainerTop.release();
+                    } catch (e) {
+                        alertError(e);
+                    }
+                },
+
+                statsView: function(){
+                    try{
+                        var cmdContainerStats = new CmdContainerStats(this.viewContainer.id)
+                        connect(cmdContainerStats);
+                        var statsData = cmdContainerStats.send();
+                        cmdContainerStats.close();
+                        cmdContainerStats.release();
+
+                        this.stats = {};
+                        this.stats.cpu = (statsData.cpuUsage/statsData.cpuTotal*100).toFixed(2);
+                        this.stats.memUsage  = (statsData.memoryUsage/1024/1024).toFixed(2);
+                        this.stats.memeLimit = Math.ceil(statsData.memoryMaxLimit/1024/1024);
+                        this.stats.ioRead  = (statsData.ioRead/1000).toFixed(2);
+                        this.stats.ioSend  = (statsData.ioWrite/1000).toFixed(2);
+                        this.stats.ioTotal = (statsData.ioTotal/1000).toFixed(2);
+                        for(var etherName in statsData.network) {
+                            var etherStats = ether = eval("statsData.network."+etherName);
+                            eval("this.stats.network={}");
+                            eval("this.stats.network."+etherName+"={}");
+                            eval("this.stats.network."+etherName+".netRx = (etherStats.netRxBytes / 1000).toFixed(0)");
+                            eval("this.stats.network."+etherName+".netTx = (etherStats.netTxBytes / 1000).toFixed(0)");
+                        }
+                    } catch (e) {
+                        alertError(e);
+                    }
+                },
+
+                execute: function(){
+                    try {
+                        if(this.execInfo.loop !=null){
+                            alert("Executor is running.")
+                            return;
+                        }
+
+                        var cmdExecCreate = new CmdExecCreate(this.viewContainer.id);
+                        connect(cmdExecCreate);
+                        cmdExecCreate.cmd(this.execInfo.cmd.split(" "));
+                        cmdExecCreate.tty(true);
+                        cmdExecCreate.attachStdin(true);
+                        var execId = cmdExecCreate.send();
+                        cmdExecCreate.close();
+                        cmdExecCreate.release();
+
+                        var cmdExecStart = new CmdExecStart(eval("k="+execId).Id);
+                        cmdExecStart.connect1(60);
+                        this.execInfo.cmdObject = cmdExecStart;
+                        cmdExecStart.tty(true);
+                        cmdExecStart.send();
+
+                        //构造终端面板
+                        if(this.execInfo.terminal==null){
+                            this.execInfo.terminal = terminal("execPanel")
+
+                            //绑定键盘输入动作
+                            this.execInfo.terminal.on("data", function(data){
+                                if(data.length==1) {
+                                    if(containerViewerVue.execInfo.cmdObject!=null) {
+                                        containerViewerVue.execInfo.cmdObject.sendData(data);
+                                    }
+                                }
+                            })
+                        }
+
+                        //循环输出日志
+                        this.execInfo.loop = setInterval(
+                            function () {
+                                var execData = null;
+                                try {
+                                    var execData = cmdExecStart.loadStream();
+                                    if (execData != null && execData!="") {
+                                        containerViewerVue.execInfo.terminal.write(execData);
+                                    }
+                                    if(execData == null){
+                                        containerViewerVue.execStop();
+                                    }
+                                }catch (e){
+                                    containerViewerVue.execStop();
+                                    alertError(e)
+                                }
+                            }, this.execInfo.interval);
+                    } catch (e) {
+                        clearInterval(this.execInfo.loop );
+                        alertError(e);
+                    }
+                },
+
+                execStop: function(){
+                    clearInterval(this.execInfo.loop)
+                    this.execInfo.loop = null;
+                        try {
+                            if (this.execInfo.cmdObject != null) {
+                                //this.execInfo.cmdObject.close();
+                                //this.execInfo.cmdObject.release();
+                            }
+                        }catch(e){}
+                    this.execInfo.cmdObject = null;
+                },
+
+                execClear: function(){
+                    this.execInfo.terminal.clear();
+                },
+            }
+        });
+
+        if(containerViewerVue.viewContainer.state.status=="running") {
+            containerViewerVue.processView();
+            containerViewerVue.statsView();
+        }
+    }
+</script>
+<body onload="init()" class="frameBody">
+<div id="viewerApp" class="uk-grid" style="display: none" v-show="this.viewContainer!=null">
+    <div class="uk-width-6-6">
+        <div class="uk-panel"></div>
+        <h3 class="uk-text-middle">
+            <span class="uk-text-danger uk-text-bold uk-text-large">{{viewContainer.name|delFirestChar}}</span>
+            <span class="uk-text"> [ {{viewContainer.state.status}} ] </span>
+        </h3>
+
+        <ul class="uk-tab" data-uk-switcher="{connect:'#Viewers'}">
+            <li><a href="#"><span class="uk-icon-sliders"></span> Summery</a></li>
+            <li><a href="#"><span class="uk-icon-sliders"></span> Resource</a></li>
+            <li><a href="#"><span class="uk-icon-line-chart"></span> Status</a></li>
+            <li><a href="#"><span class="uk-icon-terminal"></span> Console</a></li>
+            <li><a href="#"><span class="uk-icon-file-code-o"></span> Log</a></li>
+        </ul>
+        <div id="Viewers" class="uk-switcher">
+            <div>
+                <div>
+                    <table class="uk-table uk-overflow-container uk-panel-box">
+                        <caption>
+                            <div class="uk-grid">
+                                <div class="uk-width-5-6"><span class="uk-icon-info-circle"></span> Container infomation</div>
+                            </div>
+                        </caption>
+                        <tbody>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">ID </td>
+                            <td class="uk-text-bold">{{viewContainer.id |shortString(12)}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Name </td>
+                            <td class="uk-text-primary">{{viewContainer.name | delFirestChar}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Image </td>
+                            <td class="uk-text-success">{{viewContainer.image |shortString(12)}}</td>
+                        </tr>
+                        <tr v-if="viewContainer.config.workingDir!=''">
+                            <td class="uk-width-1-10 uk-text-right summeryField">WorkingDir </td>
+                            <td>
+                                <span class="">
+                                    {{viewContainer.config.workingDir}}
+                                </span>
+                            </td>
+                        </tr>
+                        <tr v-if="viewContainer.config.user!=''">
+                            <td class="uk-width-1-10 uk-text-right summeryField">User </td>
+                            <td>
+                                <span class="">
+                                    {{viewContainer.config.User}}
+                                </span>
+                            </td>
+                        </tr>
+                        <tr v-if="viewContainer.config.cmd!=null">
+                            <td class="uk-width-1-10 uk-text-right summeryField">Command </td>
+                            <td><span class="uk-text-danger uk-text-bold">
+                                <span v-for="cmdItem in viewContainer.config.cmd">
+                                    {{cmdItem}}
+                                </span>
+                                </span>
+                            </td>
+                        </tr>
+                        <tr v-if="viewContainer.config.entrypoint!=null && viewContainer.config.entrypoint.length != 0">
+                            <td class="uk-width-1-10 uk-text-right summeryField">Entrypoint </td>
+                            <td><span class="uk-text-danger uk-text-bold">
+                                <span v-for="entrypointItem in viewContainer.config.entrypoint">
+                                    {{entrypointItem+" "}}
+                                </span>
+                                </span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Env </td>
+                            <td><span class="uk-text-warning">
+                                <div v-for="envItem in viewContainer.config.env">
+                                    {{envItem}}
+                                </div>
+                                </span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Created </td>
+                            <td class="">{{viewContainer.created|strToDate}}</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <!-- 资源信息 -->
+            <div>
+                <div>
+                    <table class="uk-table uk-overflow-container uk-panel-box">
+                        <caption>
+                            <div class="uk-grid">
+                                <div class="uk-width-5-6"><span class="uk-icon-info-circle"></span> Resource infomation</div>
+                            </div>
+                        </caption>
+                        <tbody>
+
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">CPU </td>
+                            <td class="uk-text-primary">{{viewContainer.hostConfig.cpu==0?"unlimited":viewContainer.hostConfig.cpu}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Memory </td>
+                            <td class="uk-text-primary">{{viewContainer.hostConfig.memory==0?"unlimited":viewContainer.hostConfig.memory/1024/1024+"MB"}}</td>
+                        </tr>
+                        <tr v-if="JSON.stringify(viewContainer.hostConfig.portBindings) != '{}'">
+                            <td class="uk-width-1-10 uk-text-right summeryField">Export port </td>
+                            <td class="uk-text-middle">
+                                <div v-for="(guest,host) in viewContainer.hostConfig.portBindings">
+                                    <h4 class="uk-margin-bottom-remove">
+                                        <span class="uk-badge uk-badge-danger">{{host.split("/")[1].toUpperCase()}}</span>
+                                        {{host.split("/")[0]}}
+                                        <span class="uk-icon-exchange"></span> {{guest[0].HostIp==""?"0.0.0.0":guest[0].HostIp}}:{{guest[0].HostPort}}
+                                    </h4>
+                                </div>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <hr/>
+                    <table class="uk-table uk-table-condensed uk-overflow-container uk-panel-box"
+                           v-if="JSON.stringify(viewContainer.networkSettings.networks) != '{}'">
+                        <caption>
+                            <div class="uk-grid" >
+                                <div class="uk-width-5-6"><span class="icon uk-icon-sitemap"></span> Network infomation</div>
+                            </div>
+                        </caption>
+                        <thead class="uk-text-center">
+                        <th class="uk-width-2-10 uk-text-center">ID</th>
+                        <th class="uk-width-2-10 uk-text-center">Name</th>
+                        <th class="uk-width-2-10 uk-text-center">Gateway</th>
+                        <th class="uk-width-2-10 uk-text-center">IP Address</th>
+                        <th class="uk-width-2-10 uk-text-center">Mac Address</th>
+                        </thead>
+                        <tbody>
+                        <tr class="uk-text-center" v-for=" (value, key) in viewContainer.networkSettings.networks">
+                            <td class="uk-text-success uk-text-bold">
+                                <a :href="'../network/viewer.html?id='+value.networkId">{{value.networkId | shortString(12)}}</a>
+                            </td>
+                            <td>{{key}}</td>
+                            <td>{{value.gateway}}</td>
+                            <td>{{value.ipAddress}}</td>
+                            <td>{{value.macAddress}}</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <hr/>
+                    <table class="uk-table uk-table-condensed uk-overflow-container uk-panel-box"
+                           v-if="viewContainer.mounts.length > 0">
+                        <caption>
+                            <div class="uk-grid" >
+                                <div class="uk-width-5-6"><span class="icon uk-icon-clone"></span> Mount infomation</div>
+                            </div>
+                        </caption>
+                        <thead class="uk-text-center">
+                        <th class="uk-width-1-10 uk-text-center">Type</th>
+                        <th class="uk-width-2-10 ">Source</th>
+                        <th class="uk-width-2-10 ">Destination</th>
+                        <th class="uk-width-1-10 uk-text-center">RW</th>
+                        </thead>
+                        <tbody>
+                        <tr v-for=" mount in viewContainer.mounts">
+                            <td class="uk-text-center uk-text-success">{{mount.type}}</td>
+                            <td class="uk-text-primary">
+                                <a :href="'../volume/viewer.html?id='+mount.name" v-if="mount.type=='volume'">{{mount.source}}</a>
+                                <span v-else>{{mount.source}}</span>
+                            </td>
+                            <td class="uk-text-danger uk-text-bold">{{mount.destination}}</td>
+                            <td class="uk-text-center">
+                                <span class="uk-text-warning" :class="{'uk-icon-check-square':mount.rw,'uk-icon-check-square-o':!mount.rw}"></span>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <hr/>
+                    <table class="uk-table uk-table-condensed uk-overflow-container uk-panel-box"
+                           v-if="viewContainer.hostConfig.links != null">
+                        <caption>
+                            <div class="uk-grid" >
+                                <div class="uk-width-5-6"><span class="icon uk-icon-link"></span> Link infomation</div>
+                            </div>
+                        </caption>
+                        <thead class="uk-text-center">
+                        <th class="uk-width-1-2 uk-text-center">Container name</th>
+                        <th class="uk-width-1-2 uk-text-center">Linked name</th>
+                        </tdead>
+                        <tbody>
+                        <tr v-for=" link in viewContainer.hostConfig.links">
+                            <td class="uk-text-center uk-text-success">{{link.split(":")[0] | delFirestChar}}</td>
+                            <td class="uk-text-center uk-text-primary">
+                                {{link.split(":")[1].split("/")[2]}}
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <!-- 进程信息 -->
+            <div>
+                <div>
+                    <table class="uk-table uk-table-condensed uk-overflow-container uk-panel-box">
+                        <caption>
+                            <div class="uk-grid">
+                                <div class="uk-width-5-6"><span class="uk-icon-heartbeat"></span> Stats</div>
+                                <div class="uk-width-1-6 uk-text-center">
+                                    <a class="uk-button uk-button-small uk-button-primary" @click="statsView">Refresh</a>
+                                </div>
+                            </div>
+                        </caption>
+                        <thead>
+                        <th class="uk-width-1-4 uk-text-center">CPU</th>
+                        <th class="uk-width-1-4 uk-text-center">Memory (Usage/Limit)</th>
+                        <th class="uk-width-1-4 uk-text-center">IO (Read/Send/Total)</th>
+                        <th class="uk-width-1-4 uk-text-center">Net (Rx/Tx)</th>
+                        </tdead>
+                        <tbody>
+                        <tr v-if="stats!=null">
+                            <td class="uk-text-center">
+                                <span class="uk-text-danger">{{stats.cpu}}%</span>
+                            </td>
+                            <td class="uk-text-center">
+                                <span class="uk-text-primary">{{stats.memUsage}} MB </span> /
+                                <span class="uk-text-success">{{stats.memeLimit}} MB</span>
+                            </td>
+                            <td class="uk-text-center">
+                                <span class="uk-text-primary">{{stats.ioRead}} KB </span>/
+                                <span class="uk-text-warning">{{stats.ioSend}} KB </span>/
+                                <span class="uk-text-success">{{stats.ioTotal}} KB</span>
+                            </td>
+                            <td class="uk-text-center">
+                                <div v-for="(etherStats, etherName) in stats.network">
+                                    <span class=""><code>{{etherName}}</code></span>
+                                    <span class="uk-text-primary">{{etherStats.netRx}} KB </span>/
+                                    <span class="uk-text-success">{{etherStats.netTx}} KB </span>
+                                </div>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <hr/>
+                    <table class="uk-table uk-table-condensed uk-overflow-container uk-panel-box">
+                        <caption>
+                            <div class="uk-grid" >
+                                <div class="uk-width-5-6"><span class="uk-icon-bars"></span> Container process</div>
+                                <div class="uk-width-1-6 uk-text-center">
+                                    <a class="uk-button uk-button-small uk-button-primary" @click="processView">Refresh</a>
+                                </div>
+                            </div>
+                        </caption>
+                        <thead>
+                        <th class="table_colume_index uk-text-center">NO.</th>
+                        <th class="uk-width-1-10">PID</th>
+                        <th class="uk-width-1-10">User</th>
+                        <th class="uk-width-1-10">Time</th>
+                        <th class="uk-width-6-10">Command</th>
+                        </tdead>
+                        <tbody>
+                            <tr v-for="(proecess,index) in processes">
+                                <td class="uk-text-center uk-text-middle uk-text-small">{{index}}</td>
+                                <td class="uk-text-primary">{{proecess.pid}}</td>
+                                <td class="uk-text-warning">{{proecess.user}}</td>
+                                <td class="uk-text-success">{{proecess.stime}}</td>
+                                <td><code>{{proecess.command}}</code></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <!-- 执行命令  v-html="execInfo.data" class="terminal" style="height:400px; overflow-y: scroll;"-->
+            <div>
+                <div class="uk-grid uk-form">
+                    <div class="uk-width-4-6">
+                        <input class="uk-form-width-large uk-form-success" type="text"
+                               placeholder="Command will be execute in contianer" v-model="execInfo.cmd"/>
+                    </div>
+                    <div class="uk-width-2-6 uk-text-right">
+                        <a class="uk-button uk-button-small uk-button-primary"
+                           @click="execute" v-show="execInfo.loop==null">Run</a>
+                        <a class="uk-button uk-button-small uk-button-danger"
+                           @click="execStop" v-show="execInfo.loop!=null">Stop</a>
+                        <a class="uk-button uk-button-small uk-button-success" @click="execClear">Clear</a>
+                    </div>
+                </div>
+                <hr>
+                <div id="execPanel" class="terminal"></div>
+            </div>
+            <!-- 日志 v-html="logInfo.data" class="terminal"  style="height:400px; overflow-y: scroll;"-->
+            <div>
+                <div class="uk-grid uk-form">
+                    <div class="uk-width-4-6" style="line-height: 30px">
+                        <code>
+                            <span>{{viewContainer.path}} </span>
+                            <span v-for="argItem in viewContainer.args">
+                                {{argItem}}
+                            </span>
+                        </code>
+                    </div>
+                    <div class="uk-width-2-6 uk-text-right">
+                        <span class="uk-text-bold">Number of lines:</span>
+                        <select v-model="logInfo.lineCount">
+                            <option vale="10">10</option>
+                            <option vale="30">30</option>
+                            <option vale="80">80</option>
+                            <option vale="100">100</option>
+                            <option vale="150">150</option>
+                            <option vale="300">300</option>
+                            <option vale="500">500</option>
+                            <option vale="all">All</option>
+                        </select>
+                        &nbsp;&nbsp;&nbsp;&nbsp;
+                        <a class="uk-button uk-button-small uk-button-primary"
+                           @click="logView" v-show="logInfo.loop==null">Fetch</a>
+                        <a class="uk-button uk-button-small uk-button-danger"
+                           @click="logStop" v-show="logInfo.loop!=null">Stop</a>
+                        <a class="uk-button uk-button-small uk-button-success" @click="logClear">Clear</a>
+                    </div>
+                </div>
+                <hr>
+                <div id="logPanel" class="terminal"></div>
+            </div>
+        </div>
+    </div>
+    <div class="uk-width-6-6">
+        <div style="min-height:40px;" class="uk-text-center uk-margin-bottom">
+            <div><img height="27" width="120" src="../../img/logo.png"/></div>
+            <div>Copyright <span class="uk-icon-copyright"></span> Voovan Vsetful</div>
+            <div>Powered by Voovan open source framework.</div>
+            <div></div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

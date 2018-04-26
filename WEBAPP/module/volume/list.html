@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="../../img/favicon.ico"/>
+<link rel="stylesheet" href="../../css/uikit/uikit.css"/>
+<script src="../../js/common/jquery.min.js"></script>
+<script src="../../js/common/vue.min.js"></script>
+<script src="../../js/common/uikit.js"></script>
+
+<link rel="stylesheet" href="../../css/main.css"/>
+<script lang="javascript" src="../../js/utils.js"></script>
+<script lang="javascript" src="../../js/docker.js"></script>
+<script lang="javascript">
+    doImport("org.voovan.docker.command.Volume.CmdVolumeCreate")
+    doImport("org.voovan.docker.command.Volume.CmdVolumeList")
+    doImport("org.voovan.docker.command.Volume.CmdVolumeRemove")
+
+    function init() {
+        volumeListVue = new Vue({
+            el: '#volumeApp',
+            data: {
+                volumeList: null,
+                queryParams:{
+                    name:""
+                },
+                createParams:{
+                    name:"",
+                    driver:"local"
+                }
+            },
+            methods: {
+                //查询方法
+                query: function () {
+                    try {
+                        var cmdVolumeList = new CmdVolumeList();
+                        connect(cmdVolumeList);
+
+                        if (this.queryParams.name != "") {
+                            cmdVolumeList.name([this.queryParams.name]);
+                        }
+
+                        //cmdContainerList.label("author","helyho");
+
+                        this.volumeList = cmdVolumeList.send().sortBy("name");
+                        cmdVolumeList.close();
+                        cmdVolumeList.release();
+                    } catch (e) {
+                        alertError(e)
+                    }
+                },
+                //移除方法
+                remove: function (volume) {
+                    name = volume.name
+                    UIkit.modal.confirm("<span class='uk-text-large uk-text-danger'>Are you sure to remove ?</span> <hr> " +
+                        "<span class='uk-text-primary'>" + name + "</span>", function () {
+                        try {
+                            var cmdVolumeRemove = new CmdVolumeRemove(name);
+                            connect(cmdVolumeRemove)
+                            cmdVolumeRemove.send();
+                            cmdVolumeRemove.close();
+                            cmdVolumeRemove.release();
+                            volumeListVue.query();
+                        } catch (e) {
+                            alertError(e)
+                        }
+                    });
+                },
+                openCreateDialog: function () {
+                    openDialog("createVolumeDialog")
+                },
+                create: function () {
+                    try {
+                        var cmdVolumeCreate = new CmdVolumeCreate();
+                        connect(cmdVolumeCreate)
+                        cmdVolumeCreate.name(this.createParams.name);
+                        cmdVolumeCreate.driver(this.createParams.driver);
+                        cmdVolumeCreate.send();
+                        cmdVolumeCreate.close();
+                        alert("Create volume success.");
+                        closeDialog("createVolumeDialog")
+                        volumeListVue.query();
+                    } catch (e) {
+                        alertError(e);
+                    }
+                }
+            }
+        });
+        volumeListVue.query();
+    }
+</script>
+<body onload="init()" class="frameBody">
+<div id="volumeApp" class="uk-grid" style="display: none" v-show="this.volumeList!=null">
+    <div class="uk-width-6-6">
+        <div class="uk-panel"></div>
+        <h3></h3>
+        <div class="uk-grid uk-margin">
+            <div class="uk-width-1-2">
+                <h3 class="uk-text-middle">
+                    <span class="icon uk-icon-clone"></span> Volume manager
+                </h3>
+            </div>
+            <div class="uk-width-1-2 uk-text-right">
+                <a href="list.html"><span class="uk-icon-refresh"></span></a>
+            </div>
+        </div>
+        <div class="uk-panel uk-panel-box uk-text-bold">
+            <div class="uk-grid">
+                <div class="uk-width-5-6 uk-form">
+                    <span class="mr5">Name:</span><input class="uk-form-width-medium" id="nameOrId"
+                        type="text" placeholder="volume name" v-model="queryParams.name">
+                    <a class="uk-button uk-button-small" @click="query()"><i class="uk-icon-search"></i></a>
+                </div>
+                <div class="uk-width-1-6 uk-text-right">
+                    <a class="uk-button uk-button-small uk-button-primary"
+                       @click="openCreateDialog"><i class="uk-icon-plus-square"></i> </a>
+                </div>
+            </div>
+        </div>
+        <table id="volumeList" class="uk-table uk-overflow-container uk-panel-box">
+            <thead>
+            <tr>
+                <th class="uk-text-center table_colume_index">NO.</th>
+                <th class="uk-width-2-10">Name</th>
+                <th class="uk-width-1-10">Driver</th>
+                <th class="uk-width-1-10">Scope</th>
+                <th class="uk-width-2-10">Mount Point</th>
+                <th class="uk-text-center">Operation</th>
+            </tr>
+            </thead>
+
+            <tbody>
+            <tr v-for="(volume,index) in volumeList">
+                <td class="uk-text-center uk-text-middle uk-text-small">{{index+1}}</td>
+                <td class="uk-text-bold uk-text-middle uk-text-primary" :title="volume.name">{{volume.name |shortString(18)}}</td>
+                <td>{{volume.scope}}</td>
+                <td>{{volume.driver}}</td>
+                <td class="uk-text-bold uk-text-middle uk-text-success">{{volume.mountpoint |shortString(60)}}</td>
+                <td class="uk-text-center uk-text-middle">
+                    <div class="uk-button-group">
+                        <a :href="'viewer.html?id='+volume.name" class="uk-button uk-button-primary uk-button-small">
+                            <span class="uk-icon-list-alt"></span> View
+                        </a>
+                        <div data-uk-dropdown="{mode:'click'}">
+                            <!-- 触发下拉菜单的按钮 -->
+                            <a href="" class="uk-button uk-button-primary uk-button-small"><span class="uk-icon-caret-down"></span></a>
+                            <!-- 下拉菜单 -->
+                            <div class="uk-dropdown uk-dropdown-small">
+                                <ul class="uk-nav uk-nav-dropdown uk-text-left">
+                                    <li><a href="#" @click="remove(volume)"
+                                           class=" uk-text-danger"><span class="uk-icon-trash"></span> Remove</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+
+            </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="createVolumeDialog" class="uk-modal">
+        <div class="uk-modal-dialog uk-overflow-container">
+            <a href="#" class="uk-modal-close uk-close uk-close-alt"></a>
+            <div class="uk-modal-header"><h3 class="uk-text-primary uk-text-bold"><span class="icon uk-icon-clone"></span>&nbsp;Create a new volume</h3></div>
+            <div class="uk-form">
+                <table class="uk-table uk-overflow-container uk-panel-box">
+                    <tr>
+                        <td class="dialogField">Name:</td>
+                        <td><input type="text"
+                                   placeholder="volume name" v-model="createParams.name"/></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Driver:</td>
+                        <td>
+                            <select class="uk-form-width-medium" v-model="createParams.driver">
+                                <option value="local">local</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="uk-text-right" colspan="2">
+                            <a href="#" class="uk-button uk-button-primary" value="Create" @click="create()">Create</a>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="uk-width-6-6">
+        <div style="min-height:40px;" class="uk-text-center uk-margin-bottom">
+            <div><img height="27" width="120" src="../../img/logo.png"/></div>
+            <div>Copyright <span class="uk-icon-copyright"></span> Voovan Vsetful</div>
+            <div>Powered by Voovan open source framework.</div>
+            <div></div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

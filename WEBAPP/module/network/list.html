@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="../../img/favicon.ico"/>
+<link rel="stylesheet" href="../../css/uikit/uikit.css"/>
+<script src="../../js/common/jquery.min.js"></script>
+<script src="../../js/common/vue.min.js"></script>
+<script src="../../js/component/switch.js"></script>
+<script src="../../js/common/uikit.js"></script>
+
+<link rel="stylesheet" href="../../css/main.css"/>
+<script lang="javascript" src="../../js/utils.js"></script>
+<script lang="javascript" src="../../js/docker.js"></script>
+<script lang="javascript">
+    doImport("org.voovan.docker.command.Network.CmdNetworkCreate")
+    doImport("org.voovan.docker.command.Network.CmdNetworkList")
+    doImport("org.voovan.docker.command.Network.CmdNetworkRemove")
+
+    function init() {
+        networkListVue = new Vue({
+            el: '#networkApp',
+            data: {
+                networkList: null,
+                queryParams: {
+                    name:"",
+                    id:"",
+                    driver:"ALL"
+                },
+                createParams:{
+                    name: "",
+                    driver:"bridge",
+                    internal:false,
+                    attachable: false,
+                    gateway:"",
+                    subnet:"",
+                    ipRange:"",
+                    bridge:""
+                }
+            },
+            methods: {
+                //查询方法
+                query: function () {
+                    try {
+                        var cmdNetworkList = new CmdNetworkList();
+                        connect(cmdNetworkList);
+
+                        if (this.queryParams.name != "") {
+                            cmdNetworkList.name([this.queryParams.name]);
+                        }
+
+                        if (this.queryParams.id != "") {
+                            cmdNetworkList.id([this.queryParams.id]);
+                        }
+
+                        if (this.queryParams.driver != "ALL") {
+                            cmdNetworkList.driver(this.queryParams.driver);
+                        }
+
+                        //cmdContainerList.label("author","helyho");
+
+                        this.networkList = cmdNetworkList.send().sortBy("name");
+                        cmdNetworkList.close();
+                        cmdNetworkList.release();
+                    } catch (e) {
+                        alertError(e)
+                    }
+                },
+                loadContainer: function(index){
+                    if($("#containerList"+index).attr("class").indexOf("uk-hidden") >= 0 )
+                        try {
+                            var network = this.networkList[index];
+                            var viewNetwork = getNetworkDetail(network.id);
+                            this.$set(network,"containers", viewNetwork.containers);
+                        } catch (e) {
+                            alertError(e)
+                        }
+                },
+                //移除方法
+                remove: function (network) {
+                    name = network.name
+                    id = network.id
+//                    if(network.internal==false){
+//                        alert("This network is an docker default network, please do not remove it.")
+//                        return;
+//                    }
+                    UIkit.modal.confirm("<span class='uk-text-large uk-text-danger'>Are you sure to remove ?</span><hr/>" +
+                        "<span class='uk-text-large uk-text-primary'> " + name + " </span>", function () {
+                        try {
+                            var cmdNetworkRemove = new CmdNetworkRemove(id);
+                            connect(cmdNetworkRemove);
+                            cmdNetworkRemove.send();
+                            cmdNetworkRemove.close();
+                            cmdNetworkRemove.release();
+                            networkListVue.query();
+                        } catch (e) {
+                            alertError(e)
+                        }
+                    });
+
+                },
+                openCreateDialog: function () {
+                    openDialog("createNetworkDialog")
+                },
+                create: function () {
+                    try {
+                        var cmdNetworkCreate = new CmdNetworkCreate();
+                        connect(cmdNetworkCreate);
+                        cmdNetworkCreate.checkDuplicate(true);
+                        cmdNetworkCreate.name(this.createParams.name);
+                        cmdNetworkCreate.driver(this.createParams.driver);
+                        cmdNetworkCreate.internal(this.createParams.internal);
+                        cmdNetworkCreate.attachable(this.createParams.attachable);
+
+                        if(this.createParams.bridge!=""){
+                           cmdNetworkCreate.options("com.docker.network.bridge.name",this.createParams.bridge);
+                           cmdNetworkCreate.options("com.docker.network.bridge.default_bridge", "true");
+                           cmdNetworkCreate.options("com.docker.network.bridge.enable_icc", "true");
+                           cmdNetworkCreate.options("com.docker.network.bridge.enable_ip_masquerade", "true");
+                           cmdNetworkCreate.options("com.docker.network.bridge.host_binding_ipv4", "0.0.0.0");
+                           cmdNetworkCreate.options("com.docker.network.driver.mtu", "1500");
+                        }
+
+
+
+                        if (this.createParams.gateway != "" && this.createParams.subnet != ""
+                            && this.createParams.ipRange != "") {
+                            cmdNetworkCreate.IPAMConfig(this.createParams.subnet,
+                                this.createParams.ipRange, this.createParams.gateway)
+                        }
+
+                        cmdNetworkCreate.send();
+                        cmdNetworkCreate.close();
+                        alert("Create network success.");
+                        closeDialog("createNetworkDialog")
+                        networkListVue.query();
+                    } catch (e) {
+                        alertError(e);
+                    }
+                }
+            }
+        });
+        var urlId = getQueryString("id");
+        if(urlId != null){
+            $("#query").hide();
+        }
+        networkListVue.queryParams.id = urlId==null?"" : urlId;
+        networkListVue.query()
+    }
+</script>
+<body onload="init()" class="frameBody">
+<div id="networkApp" class="uk-grid" style="display: none" v-show="this.networkList!=null">
+    <div class="uk-width-6-6">
+        <div class="uk-panel"></div>
+        <h3></h3>
+        <div class="uk-grid uk-margin">
+            <div class="uk-width-1-2">
+                <h3 class="uk-text-middle">
+                    <span class="icon uk-icon-sitemap"></span> Network manager
+                </h3>
+            </div>
+            <div class="uk-width-1-2 uk-text-right">
+                <a href="list.html"><span class="uk-icon-refresh"></span></a>
+            </div>
+        </div>
+        <div id="query" class="uk-panel uk-panel-box uk-text-bold">
+            <div class="uk-grid">
+                <div class="uk-width-5-6 uk-form">
+                    <span class="mr5">Id:</span>
+                    <input class="uk-form-width-medium" id="id"
+                           type="text" placeholder="network id" v-model="queryParams.id">
+                    <span class="mr5">Name:</span><input class="uk-form-width-medium"
+                        type="text" placeholder="network name" v-model="queryParams.name">
+                    <span class="mr5">Status:</span>
+                    <select v-model="queryParams.driver">
+                        <option value="ALL">All</option>
+                        <option value="bridge">bridge</option>
+                        <option value="overlay">overlay</option>
+                        <option value="host">host</option>
+                        <option value="null">null</option>
+                    </select>
+                    <a class="uk-button uk-button-small" @click="query()"><i class="uk-icon-search"></i></a>
+                </div>
+                <div class="uk-width-1-6 uk-text-right">
+                    <a class="uk-button uk-button-small uk-button-primary"
+                       @click="openCreateDialog"><i class="uk-icon-plus-square"></i> </a>
+                </div>
+            </div>
+        </div>
+        <table id="networkList" class="uk-table uk-overflow-container uk-panel-box">
+            <thead>
+            <tr>
+                <th class="uk-text-center table_colume_index">NO.</th>
+                <th class="uk-width-2-10">ID</th>
+                <th class="uk-width-2-10">Name</th>
+                <th class="uk-width-1-10">Scope</th>
+                <th class="uk-width-1-10">Driver</th>
+                <th class="uk-width-1-10">Subnet</th>
+                <th class="uk-width-1-10">GateWay</th>
+                <th class="uk-width-2-10 uk-text-center">Operation</th>
+            </tr>
+            </thead>
+
+            <tbody v-for="(network,index) in networkList">
+            <tr>
+                <td class="uk-text-center uk-text-middle uk-text-small">{{index+1}}</td>
+                <td class="uk-text-bold uk-text-middle uk-text-primary">
+                    <a :data-uk-toggle="'{target:\'#containerList'+index+'\'}'" @click="loadContainer(index)"
+                        :title="network.id">
+                        <span class="uk-icon-plus-square-o"></span> {{network.id|shortString(12)}}
+                    </a>
+                </td>
+                <td class="uk-text-bold uk-text-middle uk-text-success">
+                    <span class="uk-icon-exclamation-circle uk-text-warning" v-if="network.internal==false"></span>
+                    <span class="uk-icon-sitemap uk-text-primary" v-if="network.internal==true"></span>
+                    {{network.name}}
+                </td>
+                <td class="uk-text-middle">{{network.scope}}</td>
+                <td>{{network.driver}}</td>
+                <td class="uk-text-middle uk-text-success">
+                    <code v-if="network.ipam.config.length > 0">{{network.ipam.config[0].subnet}}</code>
+                </td>
+                <td>
+                    <code v-if="network.ipam.config.length > 0">{{network.ipam.config[0].gateway}}</code>
+                </td>
+                <td class="uk-text-center uk-text-middle">
+                    <div class="uk-button-group">
+                        <a :href="'viewer.html?id='+network.id" class="uk-button uk-button-primary uk-button-small">
+                            <span class="uk-icon-list-alt"></span> View
+                        </a>
+                        <div data-uk-dropdown="{mode:'click'}">
+                            <!-- 触发下拉菜单的按钮 -->
+                            <a href="" class="uk-button uk-button-primary uk-button-small"><span class="uk-icon-caret-down"></span></a>
+                            <!-- 下拉菜单 -->
+                            <div class="uk-dropdown uk-dropdown-small">
+                                <ul class="uk-nav uk-nav-dropdown uk-text-left">
+                                    <li><a href="#" @click="remove(network)"
+                                           class=" uk-text-danger"><span class="uk-icon-trash"></span> Remove</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            <tr>
+            <tr :id="'containerList'+index" class="uk-hidden" style="background-color: #FFFFFF">
+                <td colspan="8">
+                    <div class="uk-grid uk-margin-small-left">
+                        <div class="uk-text-right uk-text-primary uk-vertical-align" style="width: 35px; margin-right: 10px;">
+                            <span class="uk-icon-small uk-icon-arrow-right uk-vertical-align-middle"></span>
+                        </div>
+                        <div class="uk-padding-remove" style="width: 92%;" >
+                            <table class="uk-table uk-panel-box  uk-table-condensed">
+                                <tr class="uk-alert">
+                                    <td class="uk-text-bold uk-text-center">Container ID</td>
+                                    <td class="uk-text-bold">Name</td>
+                                    <td class="uk-text-bold uk-text-center">IP</td>
+                                    <td class="uk-text-bold uk-text-center">MacAddress</td>
+                                </tr>
+                                <tr v-for="(container, id) in network.containers">
+                                    <td class="uk-text-center uk-text-small">
+                                        {{id  |shortString(12)}}
+                                    </td>
+                                    <td class="">
+                                        <a :href="'../container/list.html?id='+id" class="uk-text-danger uk-text-bold">
+                                            <span class="uk-text-primary uk-text-small" :title="container.name">{{container.name|delFirestChar|shortString(50)}}</span>
+                                        </a>
+                                    </td>
+                                    <td class="uk-text-center">
+                                        <span class="uk-text-danger uk-text-small">{{container.ipv4Address}}</span>
+                                    </td>
+                                    <td class="uk-text-center">
+                                        <span class="uk-text-warning uk-text-small">{{container.macAddress}}</span>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="createNetworkDialog" class="uk-modal">
+        <div class="uk-modal-dialog uk-overflow-container">
+            <a href="#" class="uk-modal-close uk-close uk-close-alt"></a>
+            <div class="uk-modal-header"><h3 class="uk-text-bold uk-text-primary"><span class="icon uk-icon-sitemap"></span>&nbsp;Create a new network</h3></div>
+            <div class="uk-form">
+                <table class="uk-table uk-overflow-container uk-panel-box">
+                    <tr>
+                        <td class="dialogField">Name:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="network name" v-model="createParams.name"/></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Driver:</td>
+                        <td>
+                            <select class="uk-form-width-medium" v-model="createParams.driver">
+                                <option value="null">null</option>
+                                <option value="host">host</option>
+                                <option value="bridge">bridge</option>
+                                <option value="overlay">overlay</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr v-if="createParams.driver=='bridge'">
+                        <td class="dialogField">Bridge:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="bridge name" v-model="createParams.bridge"/></td>
+                    </tr>
+                    <tr v-if="createParams.driver=='overlay'">
+                        <td class="dialogField">Attachable:</td>
+                        <td>
+                            <c-switch bind="createParams.attachable"
+                                      :switch='{"On":true,"Off":false}'
+                                      theme="uk-button-primary uk-button-small"></c-switch>
+                            </td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Internal:</td>
+                        <td> <c-switch bind="createParams.internal"
+                                       :switch='{"On":true,"Off":false}'
+                                       theme="uk-button-primary uk-button-small"></c-switch></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">IP Range:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="dhcp ip range" v-model="createParams.ipRange"/></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Subnet:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="dhcp subnet" v-model="createParams.subnet"/></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Gateway:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="gateway in this network" v-model="createParams.gateway"/></td>
+                    </tr>
+                    <tr>
+                        <td class="uk-text-right" colspan="2">
+                            <a href="#"  class="uk-button uk-button-primary"
+                               type="button" value="" @click="create()">Create</a>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="uk-width-6-6">
+        <div style="min-height:40px;" class="uk-text-center uk-margin-bottom">
+            <div><img height="27" width="120" src="../../img/logo.png"/></div>
+            <div>Copyright <span class="uk-icon-copyright"></span> Voovan Vsetful</div>
+            <div>Powered by Voovan open source framework.</div>
+            <div></div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

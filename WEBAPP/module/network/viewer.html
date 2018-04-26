@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="../../img/favicon.ico"/>
+<link rel="stylesheet" href="../../css/uikit/uikit.css"/>
+<script src="../../js/common/jquery.min.js"></script>
+<script src="../../js/common/vue.min.js"></script>
+<script src="../../js/common/uikit.js"></script>
+<script src="../../js/common/xterm.js"></script>
+<link rel="stylesheet" href="../../css/main.css"/>
+<link rel="stylesheet" href="../../css/xterm.css"/>
+
+<script lang="javascript" src="../../js/utils.js"></script>
+<script lang="javascript" src="../../js/docker.js"></script>
+<script lang="javascript">
+    doImport("org.voovan.docker.command.Network.CmdNetworkDisConnect")
+
+    function init() {
+        networkViewerVue = new Vue({
+                el: '#viewerApp',
+                computed: {
+                    viewNetwork: function () {
+                        var networkId = getQueryString("id");
+                        var viewNetwork = getNetworkDetail(networkId);
+                        if (viewNetwork != null) {
+                            document.title = viewNetwork.name + " - Network";
+                            return viewNetwork;
+                        } else {
+                            return null;
+                        }
+                    }
+                },
+                methods:{
+                    disconnect:function(containerId){
+                        try {
+                            var networkId = getQueryString("id");
+                            var cmdNetworkDisConnect = new CmdNetworkDisConnect(networkId)
+                            connect(cmdNetworkDisConnect)
+                            cmdNetworkDisConnect.container(containerId)
+                            cmdNetworkDisConnect.send();
+                            cmdNetworkDisConnect.close();
+                            cmdNetworkDisConnect.release();
+                            location.reload()
+                        } catch (e) {
+                            alertError(e)
+                        }
+                    }
+                }
+            }
+        );
+    }
+</script>
+<body onload="init()" class="frameBody">
+<div id="viewerApp" class="uk-grid" style="display: none" v-show="this.viewNetwork!=null">
+    <div class="uk-width-6-6">
+        <div class="uk-panel"></div>
+        <h3 class="uk-text-middle">
+            <span class="uk-text-danger uk-text-bold uk-text-large">{{viewNetwork.name}}</span>
+            <span class="uk-text"> [ {{viewNetwork.scope}} ] </span>
+        </h3>
+
+        <ul class="uk-tab" data-uk-switcher="{connect:'#Viewers'}">
+            <li><a href="#"><span class="uk-icon-sliders"></span> Summery</a></li>
+            <li><a href="#"><span class="uk-icon-desktop"></span> Container</a></li>
+        </ul>
+        <div id="Viewers" class="uk-switcher">
+            <div>
+                <div>
+                    <table class="uk-table uk-overflow-container uk-panel-box">
+                        <caption>
+                            <div class="uk-grid">
+                                <div class="uk-width-5-6"><span class="uk-icon-info-circle"></span> Network infomation</div>
+                            </div>
+                        </caption>
+                        <tbody>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">ID </td>
+                            <td class="uk-text-bold">{{viewNetwork.id |shortString(12)}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Name </td>
+                            <td class="uk-text-primary">{{viewNetwork.name}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Scope </td>
+                            <td class="uk-text-success">{{viewNetwork.scope}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Driver </td>
+                            <td class="uk-text-warning">{{viewNetwork.driver}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">EnableIPv6 </td>
+                            <td class="uk-text-muted">{{viewNetwork.enableIPv6}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Internal </td>
+                            <td class="uk-text-muted">{{viewNetwork.internal}}</td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Attachable </td>
+                            <td class="uk-text-muted">{{viewNetwork.attachable}}</td>
+                        </tr>
+                        <tr v-if="viewNetwork.ipam.config.length!=0">
+                            <td class="uk-width-1-10 uk-text-right summeryField">IP </td>
+                            <td class="uk-text-bold">
+                                <div v-for="ipConfig in viewNetwork.ipam.config">
+                                    <span class="uk-badge">Subnet</span><code>{{ipConfig.subnet}}</code>
+                                    <span class="uk-badge">Gateway</span><code>{{ipConfig.gateway}}</code>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr v-if="JSON.stringify(viewNetwork.options)!='{}'">
+                            <td class="uk-width-1-10 uk-text-right summeryField">Options </td>
+                            <td class="uk-text-bold">
+                                <div v-for="(value, key) in viewNetwork.options">
+                                    <code>{{key}}<span class="uk-text-primary uk-text-bold" > = </span><span class="uk-text-success">{{value}}</span></code>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="uk-width-1-10 uk-text-right summeryField">Created </td>
+                            <td class="">{{viewNetwork.created | strToDate}}</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <table class="uk-table uk-overflow-container uk-panel-box" v-if="viewNetwork.peers.length!=0">
+                        <caption>
+                            <div class="uk-grid">
+                                <div class="uk-width-5-6"><span class="uk-icon-info-circle"></span> Peer infomation</div>
+                            </div>
+                        </caption>
+                        <thead>
+                        <th>Host Name</th>
+                        <th>IP</th>
+                        </thead>
+                        <tbody>
+                        <tr v-for="peer in viewNetwork.peers">
+                            <td class="uk-text-bold uk-text-primary">{{peer.name}}</td>
+                            <td><code>{{peer.ip}}</code></td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <!-- 容器信息 -->
+            <div>
+                <div>
+                    <table class="uk-table uk-table-condensed uk-overflow-container uk-panel-box">
+                        <caption>
+                            <div class="uk-grid">
+                                <div class="uk-width-5-6"><span class="uk-icon-desktop"></span> Container infomation</div>
+                            </div>
+                        </caption>
+                        <thead>
+                        <th class="uk-width-1-5 uk-text-center">ID</th>
+                        <th class="uk-width-1-5">Name</th>
+                        <th class="uk-width-1-5 uk-text-center">IPv4Address</th>
+                        <th class="uk-width-1-5 uk-text-center">MacAddress</th>
+                        <th class="uk-width-1-5 uk-text-center">Disconnect</th>
+                        </thead>
+                        <tbody>
+                        <tr v-for="(container, id) in viewNetwork.containers">
+                            <td class="uk-text-center">
+                                {{id  |shortString(12)}}
+                            </td>
+                            <td class="">
+                                <a :href="'../container/viewer.html?id='+id" class="uk-text-danger uk-text-bold">
+                                    <span class="uk-text-primary">{{container.name}}</span>
+                                </a>
+                            </td>
+                            <td class="uk-text-center">
+                                <span class="uk-text-danger">{{container.ipv4Address}}</span>
+                            </td>
+                            <td class="uk-text-center">
+                                <span class="uk-text-warning">{{container.macAddress}}</span>
+                            </td>
+                            <td class="uk-text-center">
+                                <span class="uk-text-primary">
+                                    <button class="uk-button uk-button-danger uk-button-small" @click="disconnect(id)">Disconnect</button>
+                                </span>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="uk-width-6-6">
+        <div style="min-height:40px;" class="uk-text-center uk-margin-bottom">
+            <div><img height="27" width="120" src="../../img/logo.png"/></div>
+            <div>Copyright <span class="uk-icon-copyright"></span> Voovan Vsetful</div>
+            <div>Powered by Voovan open source framework.</div>
+            <div></div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="../../img/favicon.ico"/>
+<link rel="stylesheet" href="../../css/uikit/uikit.css"/>
+<script src="../../js/common/jquery.min.js"></script>
+<script src="../../js/common/vue.min.js"></script>
+<script src="../../js/common/uikit.js"></script>
+
+<link rel="stylesheet" href="../../css/main.css"/>
+<script lang="javascript" src="../../js/utils.js"></script>
+<script lang="javascript" src="../../js/docker.js"></script>
+<script lang="javascript">
+    doImport("org.voovan.docker.command.Node.CmdNodeList")
+    doImport("org.voovan.docker.command.Node.CmdNodeRemove")
+    doImport("org.voovan.docker.command.Node.CmdNodeUpdate")
+
+    function init() {
+        nodeListVue = new Vue({
+            el: '#nodeApp',
+            data: {
+                nodeList: null,
+                queryParams: {
+                    id:"",
+                    role:"ALL"
+                },
+                updateParams:{
+                    node: null,
+                    name: "",
+                    role:"manager",
+                    availability:"active"
+                }
+            },
+            methods: {
+                //查询方法
+                query: function () {
+                    try {
+                        var cmdNodeList = new CmdNodeList();
+                        connect(cmdNodeList);
+
+                        if (this.queryParams.id != "") {
+                            cmdNodeList.id([this.queryParams.id]);
+                        }
+
+                        if (this.queryParams.role != "ALL") {
+                            cmdNodeList.role(this.queryParams.role);
+                        }
+
+                        //cmdContainerList.label("author","helyho");
+
+                        this.nodeList = cmdNodeList.send().sortBy("name");
+                        cmdNodeList.close();
+                        cmdNodeList.release();
+                    } catch (e) {
+                        alertError(e)
+                    }
+                },
+                //移除方法
+                remove: function (node) {
+                    id = node.id
+                    UIkit.modal.confirm("<span class='uk-text-large uk-text-danger'>Are you sure to remove </span><hr/>" +
+                        "<span class='uk-text-large uk-text-primary'>[ " + id + " ]</span> ?", function () {
+                        try {
+                            var cmdNodeRemove = new CmdNodeRemove(id);
+                            connect(cmdNodeRemove);
+                            cmdNodeRemove.send();
+                            cmdNodeRemove.close();
+                            cmdNodeRemove.release();
+                            nodeListVue.query();
+                        } catch (e) {
+                            alertError(e)
+                        }
+                    });
+
+                },
+                openUpdateDialog: function (node) {
+                    this.updateParams.node = node;
+                    this.updateParams.name = node.spec.name;
+                    this.updateParams.role = node.spec.role;
+                    this.updateParams.availability = node.spec.availability;
+                    openDialog("updateNodeDialog");
+                },
+                update: function () {
+                    try {
+                        var node = this.updateParams.node;
+                        var cmdNodeUpdate = new CmdNodeUpdate(node.id, parseInt(node.version.index));
+                        connect(cmdNodeUpdate);
+                        if(this.updateParams.name!=""){
+                            cmdNodeUpdate.name(this.updateParams.name)
+                        }
+                        if(this.updateParams.role!=""){
+                            cmdNodeUpdate.role(this.updateParams.role)
+                        }
+                        if(this.updateParams.availability!=""){
+                            cmdNodeUpdate.availability(this.updateParams.availability)
+                        }
+                        cmdNodeUpdate.send();
+                        cmdNodeUpdate.close();
+                        alert("Update node success.");
+                        closeDialog("updateNodeDialog")
+                        nodeListVue.query();
+                    } catch (e) {
+                        alertError(e);
+                    }
+                },
+                updateName: function (node) {
+                    UIkit.modal.prompt("<span class='uk-text-large uk-text-primary uk-text-bold'>Node name:</span>", node.spec.name, function(newvalue){
+                        try {
+                            var cmdNodeUpdate = new CmdNodeUpdate(node.id, parseInt(node.version.index));
+                            connect(cmdNodeUpdate);
+                            if(newvalue!=""){
+                                cmdNodeUpdate.name(newvalue)
+                            }
+                            node.spec.name = newvalue;
+                            cmdNodeUpdate.send();
+                            cmdNodeUpdate.close();
+                        } catch (e) {
+                            alertError(e)
+                        }
+                    });
+                }
+            }
+        });
+        var urlId = getQueryString("id");
+        nodeListVue.queryParams.id = urlId==null?"" : urlId;
+        if(urlId != null){
+            $("#query").hide();
+        }
+        nodeListVue.query()
+    }
+</script>
+<body onload="init()" class="frameBody">
+<div id="nodeApp" class="uk-grid" style="display: none" v-show="this.nodeList!=null">
+    <div class="uk-width-6-6">
+        <div class="uk-panel"></div>
+        <h3></h3>
+        <div class="uk-grid uk-margin">
+            <div class="uk-width-1-2">
+                <h3 class="uk-text-middle">
+                    <span class="icon uk-icon-cube"></span> Node manager
+                </h3>
+            </div>
+            <div class="uk-width-1-2 uk-text-right">
+                <a href="list.html"><span class="uk-icon-refresh"></span></a>
+            </div>
+        </div>
+        <div id="query" class="uk-panel uk-panel-box uk-text-bold">
+            <div class="uk-grid">
+                <div class="uk-width-5-6 uk-form">
+                    <span class="mr5">Id:</span>
+                    <input class="uk-form-width-medium" id="id"
+                           type="text" placeholder="node id" v-model="queryParams.id">
+                    <span class="mr5">Role:</span>
+                    <select v-model="queryParams.role">
+                        <option value="ALL">All</option>
+                        <option value="worker">worker</option>
+                        <option value="manager">manager</option>
+                    </select>
+                    <a class="uk-button uk-button-small" @click="query()"><i class="uk-icon-search"></i></a>
+                </div>
+            </div>
+        </div>
+        <table id="nodeList" class="uk-table uk-overflow-container uk-panel-box">
+            <thead>
+            <tr>
+                <th class="uk-text-center table_colume_index">NO.</th>
+                <th style="width:113px">ID</th>
+                <th class="uk-width-2-10">Name <span class="uk-text-muted uk-text-small">( node / host ) </span></th>
+                <th class="uk-width-1-10 uk-text-center">Role</th>
+                <th class="uk-width-1-10 uk-text-center">Status</th>
+                <th class="uk-width-1-10 uk-text-center">Availability</th>
+                <th class="uk-width-2-10" style="width: 110px">Resource</th>
+                <th class="uk-width-1-10">Platform</th>
+                <th class="uk-text-center uk-width-1-10">Opertaion</th>
+            </tr>
+            </thead>
+
+            <tbody>
+            <tr v-for="(node,index) in nodeList" :class='{ created: node.managerStatus.leader=="true" }'>
+                <td class="uk-text-center uk-text-middle uk-text-small">{{index+1}}</td>
+                <td class="uk-text-middle uk-text-bold uk-text-primary uk-text-small">
+                    <span v-if='node.managerStatus.leader=="true"' class="uk-text-danger uk-icon-leaf" title="Leader"></span>
+                    {{node.id|shortString(12)}}
+                </td>
+                <td class="uk-text-middle ">
+                    <span class="uk-text-warning">
+                        <a href='#' class="uk-button uk-button-success uk-button-mini"
+                           v-if="node.spec.name==null" @click='updateName(node)'>set name</a>
+                        <span v-else>{{node.spec.name}}</span>
+                    </span>
+                    /
+                    <span class="uk-text-success">{{node.description.hostname}}</span>
+                </td>
+                <td class="uk-text-middle uk-text-center uk-text-warning">{{node.spec.role}}</td>
+                <td class="uk-text-middle uk-text-center">{{node.status.state}}</td>
+                <td class="uk-text-bold uk-text-middle uk-text-center uk-text-danger">
+                    {{node.spec.availability}}
+                </td>
+                <td class="uk-text-small uk-text-middle uk-text-danger">
+                    <span class="uk-text-primary">CPU: {{node.description.resources.nanoCPUs/1000000000}}</span><br>
+                    <span class="uk-text-success">MEM: {{(node.description.resources.memoryBytes/1024/1024).toFixed(0)}}MB</span><br>
+                    <span class="uk-text-warning">IP: {{node.status.addr}}</span>
+                </td>
+                <td class="uk-text-middle uk-width-1-10">{{node.description.platform.os}}-{{node.description.platform.architecture}}</td>
+                <td class="uk-text-center uk-text-middle">
+                    <div class="uk-button-group">
+                        <a href="#" class="uk-button uk-button-primary uk-button-small" @click="openUpdateDialog(node)">
+                            <span class="uk-icon-list-alt"></span> Update</a>
+                        <div data-uk-dropdown="{mode:'click'}">
+                            <!-- 触发下拉菜单的按钮 -->
+                            <a href="" class="uk-button uk-button-primary uk-button-small"><span class="uk-icon-caret-down"></span></a>
+                            <!-- 下拉菜单 -->
+                            <div class="uk-dropdown uk-dropdown-small">
+                                <ul class="uk-nav uk-nav-dropdown uk-text-left">
+                                    <li><a href="#" @click="remove(node)"
+                                           class=" uk-text-danger"><span class="uk-icon-trash"></span> Remove</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="updateNodeDialog" class="uk-modal">
+        <div class="uk-modal-dialog uk-overflow-container">
+            <a href="#" class="uk-modal-close uk-close uk-close-alt"></a>
+            <div class="uk-modal-header"><h3 class="uk-text-primary uk-text-bold"><span class="icon uk-icon-cube"></span> &nbsp;Update node</h3></div>
+            <div class="uk-form">
+                <table class="uk-table uk-overflow-container uk-panel-box">
+                    <tr>
+                        <td class="dialogField">Driver:</td>
+                        <td>
+                            <select class="uk-form-width-medium" v-model="updateParams.role">
+                                <option value="manager">manager</option>
+                                <option value="worker">worker</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Availability:</td>
+                        <td>
+                            <select class="uk-form-width-medium" v-model="updateParams.availability">
+                                <option value="active">active</option>
+                                <option value="pause">pause</option>
+                                <option value="drain">drain</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Node name:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="node name" v-model="updateParams.name"/></td>
+                    </tr>
+                    <tr>
+                        <td class="uk-text-right" colspan="2">
+                            <a class="uk-button uk-button-primary" @click="update()">Update</a>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="uk-width-6-6">
+        <div style="min-height:40px;" class="uk-text-center uk-margin-bottom">
+            <div><img height="27" width="120" src="../../img/logo.png"/></div>
+            <div>Copyright <span class="uk-icon-copyright"></span> Voovan Vsetful</div>
+            <div>Powered by Voovan open source framework.</div>
+            <div></div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

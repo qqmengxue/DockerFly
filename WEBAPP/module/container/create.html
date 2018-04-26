@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="../../img/favicon.ico"/>
+<link rel="stylesheet" href="../../css/uikit/uikit.css"/>
+<script src="../../js/common/jquery.min.js"></script>
+<script src="../../js/common/vue.min.js"></script>
+<script src="../../js/component/switch.js"></script>
+<script src="../../js/common/uikit.js"></script>
+<script src="../../js/common/xterm.js"></script>
+<link rel="stylesheet" href="../../css/main.css"/>
+<link rel="stylesheet" href="../../css/xterm.css"/>
+
+<script lang="javascript" src="../../js/utils.js"></script>
+<script lang="javascript" src="../../js/docker.js"></script>
+<script lang="javascript">
+    doImport("org.voovan.docker.command.Container.CmdContainerCreate")
+
+    function init() {
+        containerCreateVue = new Vue({
+            el: '#ContainerApp',
+            data: {
+                createParams: {
+                    name: "",
+                    image: "",
+                    command: "",
+                    tty: false,
+                    openStdin: false,
+                    workDir:"",
+                    user:"",
+                    entrypoint: "",
+                    env: "",
+                    privileged: false,
+                    cpu: 1,
+                    memory: 64,
+                    network: "",
+                    networkDisable: false,
+                    hostname:"",
+                    domainName:"",
+                    restartPolicy:{
+                        "name":"no",
+                        "maximumRetryCount":0
+                    },
+                    env:{
+                        envs:[],
+                        add: function(key, value, canRemove){
+                            var env={};
+                            env.key = key;
+                            env.value = value;
+                            env.canRemove = canRemove==null?true:canRemove;
+                            this.envs.push(env)
+                        },
+                        remove: function(index){
+                            this.envs.remove(index)
+                        }
+                    },
+                    port: {
+                        ports:[],
+                        add: function(containerPort,protocol,canRemove){
+                            var port = {};
+                            port.hostPort = "";
+                            port.containerPort = containerPort;
+                            port.protocol = protocol==null?"tcp":protocol;
+                            port.canRemove = canRemove==null?true:canRemove;;
+                            this.ports.push(port);
+                        },
+                        remove: function(index){
+                            this.ports.remove(index)
+                        }
+                    },
+                    volume:{
+                        volumes:[],
+                        add: function(target,canRemove){
+                            var volume = {};
+                            volume.type="volume";
+                            volume.volumeSource = "";
+                            volume.volumeTarget = target;
+                            volume.canRemove = canRemove==null?true:canRemove;;
+                            this.volumes.push(volume);
+                        },
+                        remove: function(index){
+                            this.volumes.remove(index)
+                        }
+                    },
+                    link: {
+                        links: [],
+                        add: function () {
+                            var link = {};
+                            link.linkContainer = null;
+                            link.linkName = null;
+                            this.links.push(link);
+                        },
+                        remove: function (index) {
+                            this.links.remove(index)
+                        }
+                    }
+                }
+            },
+            computed:{
+                containerList: function(){
+                    return getContainers()
+                },
+                volumeList: function(){
+                  return getVolumes();
+                },
+                imageList: function () {
+                    return getImages();
+                },
+                imageRepoTags: function () {
+                    var imageRepoTags = [];
+                    for(imageIndex in this.imageList){
+                        var image = this.imageList[imageIndex]
+                        if(typeof(image)!="function" && image.repoTags!=null) {
+                            for (repoTagIndex in image.repoTags) {
+
+                                var repoTag = image.repoTags[repoTagIndex]
+                                if(typeof(repoTag)!="function" && repoTag!=null) {
+                                    imageRepoTags.push(repoTag);
+                                }
+                            }
+                        }
+                    }
+                    return imageRepoTags;
+                },
+                networkList: function () {
+                    return getNetworks();
+                },
+            },
+            watch:{
+                "createParams.image" : function(newVal, oldVal){
+                    var imageDetail = getImageDetail(newVal);
+
+                    this.createParams.workDir = imageDetail.config.workingDir;
+                    this.createParams.user = imageDetail.config.user;
+
+                    //处理 EntryPoint
+                    this.createParams.entrypoint = "";
+                    for(var index in imageDetail.config.entrypoint) {
+                        var entry = imageDetail.config.entrypoint[index];
+                        if(typeof(entry) == "string") {
+                            this.createParams.entrypoint = this.createParams.entrypoint + entry +" ";
+                        }
+                    }
+
+                    //处理环境变量
+                    this.createParams.env.envs = [];
+                    for(var index in imageDetail.config.env){
+                        if(typeof(imageDetail.config.env[index])=="string") {
+                            var envItem = imageDetail.config.env[index].split("=");
+                            this.createParams.env.add(envItem[0], envItem[1], false);
+                        }
+                    }
+
+                    //处理端口
+                    this.createParams.port.ports = [];
+                    for(var exposedPort in imageDetail.config.exposedPorts){
+                        var portConfig = exposedPort.split("/");
+                        this.createParams.port.add(portConfig[0] , portConfig[1], false)
+                    }
+
+                    //处理卷
+                    this.createParams.volume.volumes = [];
+                    for(var target in imageDetail.config.volumes){
+                        this.createParams.volume.add(target, false)
+                    }
+                }
+            },
+            methods: {
+                //创建容器
+                create: function () {
+                    try {
+                        cmdContainerCreate = new CmdContainerCreate(this.createParams.name);
+                        connect(cmdContainerCreate);
+
+                        var entity = cmdContainerCreate.getEntity("OBJECT");
+
+                        if (this.createParams.image != "") {
+                            cmdContainerCreate.image(this.createParams.image);
+                        }
+
+                        if (this.createParams.command != "") {
+                            cmdContainerCreate.cmd(this.createParams.command.split(" "));
+                        }
+
+                        if (this.createParams.workDir!= "") {
+                            cmdContainerCreate.workDir(this.createParams.workDir);
+                        }
+
+                        if (this.createParams.user != "") {
+                            cmdContainerCreate.user(this.createParams.user);
+                        }
+
+                        if (this.createParams.env != "") {
+                            var envArr = [];
+                            for(var index in this.createParams.env.envs){
+                                var env = this.createParams.env.envs[index]
+                                if(typeof(env)!="function") {
+                                    envArr.push(env.key + "=" + env.value);
+                                }
+                            }
+                            cmdContainerCreate.env(envArr);
+                        }
+
+                        if (this.createParams.privileged != "") {
+                            cmdContainerCreate.privileged(this.createParams.privileged);
+                        }
+
+                        if (this.createParams.tty != "") {
+                            cmdContainerCreate.tty(this.createParams.tty);
+                        }
+
+                        if (this.createParams.openStdin != "") {
+                            cmdContainerCreate.openStdin(this.createParams.openStdin);
+                        }
+
+                        if (this.createParams.restartPolicy.name != "") {
+                            cmdContainerCreate.restartPolicy(this.createParams.restartPolicy.name, this.createParams.restartPolicy.maximumRetryCount);
+                        }
+
+                        if (this.createParams.cpu != "") {
+                            cmdContainerCreate.cpu(this.createParams.cpu);
+                        }
+
+                        if (this.createParams.memory != "") {
+                            cmdContainerCreate.memory(this.createParams.memory);
+                        }
+
+                        if (this.createParams.networkDisable != "") {
+                            cmdContainerCreate.networkDisable(this.createParams.networkDisable);
+                        }
+
+                        if (this.createParams.network != "") {
+                            cmdContainerCreate.network(this.createParams.network);
+                        }
+
+                        if (this.createParams.port.ports.length > 0) {
+                            for (var i = 0; i < this.createParams.port.ports.length; i++) {
+                                var port = this.createParams.port.ports[i];
+                                if(port.containerPort!=null && port.containerPort != "") {
+                                    cmdContainerCreate.exposePort(port.protocol, port.containerPort + "", [port.hostPort + ""]);
+                                }
+                            }
+                        }
+
+                        if (this.createParams.volume.volumes.length >= 0) {
+                            var volumes = new Array();
+                            for(var i = 0; i<this.createParams.volume.volumes.length; i++) {
+                                var volume = this.createParams.volume.volumes[i];
+                                if (volume.volumeSource !=null && volume.volumeSource != "") {
+                                    cmdContainerCreate.mount(volume.type, volume.volumeSource , "/"+volume.volumeTarget, false);
+                                }
+
+                                //tmpfs挂载
+                                if (volume.volumeSource==null && volume.type == "tmpfs") {
+                                    cmdServiceCreate.mount(volume.type, null, "/"+volume.volumeTarget, false);
+                                }
+                            }
+                        }
+
+                        if (this.createParams.link.links.length > 0) {
+                            var links = new Array();
+                            for (var i = 0; i < this.createParams.link.links.length; i++) {
+                                var link = this.createParams.link.links[i];
+                                var linkStr = "";
+                                if (link.linkName != "") {
+                                    linkStr = link.linkContainer + ":" + link.linkName;
+                                } else {
+                                    linkStr = link.linkContainer + ":" + link.linkContainer;
+                                }
+                                links.push(linkStr)
+                            }
+                            cmdContainerCreate.link(links);
+                        }
+
+                        entity.release();
+
+                        var blockDialog = openBlockDialog("Creating Container...");
+                        cmdContainerCreate.send(function(msg){
+                            blockDialog.hide();
+                            cmdContainerCreate.close();
+                            cmdContainerCreate.release();
+                            window.location = "list.html"
+                        }, function(status, errMsg){
+                            blockDialog.hide();
+                            var errorObj = eval("errorObj="+errMsg)
+                            alertError("Create container failed. <br/>"+errorObj.errMsg);
+                            cmdContainerCreate.close();
+                            cmdContainerCreate.release();
+                        });
+
+                    } catch (e) {
+                        alertError(e);
+                    }
+                }
+            }
+        });
+
+        //默认镜像创建
+        var image = getQueryString("image");
+        if(image!=null) {
+            containerCreateVue.createParams.image = image;
+        }
+    }
+</script>
+<body onload="init()" class="frameBody">
+<div id="ContainerApp" class="uk-grid">
+    <div class="uk-width-6-6">
+        <div class="uk-panel"></div>
+        <h3 class="uk-text-middle"><span class="icon uk-icon-desktop"></span> Create a new container</h3>
+        <div class="uk-form">
+            <table class="uk-table uk-overflow-container uk-panel-box">
+                <tr>
+                    <td class="dialogField uk-width-1-10">Name:</td>
+                    <td><input class="uk-form-width-large" type="text"
+                               placeholder="e.g. myContainer" v-model="createParams.name"/></td>
+                </tr>
+                <tr>
+                    <td class="dialogField">Image:</td>
+                    <td>
+                        <select class="uk-form-width-large" v-model="createParams.image" autocomplete="off">
+                            <option v-for="(repoTag,index) in imageRepoTags"
+                                    :value="repoTag">
+                                <span class="uk-text-bold">{{repoTag}}</span>
+                            </option>
+                        </select>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="dialogField">Privileged:</td>
+                    <td>
+                        <c-switch bind="createParams.privileged" :switch='{"ON":true,"OFF":false}'
+                                  theme="uk-button-primary uk-button-small"></c-switch>
+                    </td>
+                </tr>
+            </table>
+            <hr>
+            <ul class="uk-tab" data-uk-tab="{connect:'#tab-content'}">
+                <li><a href="#"><span class="icon uk-icon-list-alt"></span>Runtime</a></li>
+                <li><a href="#"><span class="uk-icon-database"></span> Resource</a></li>
+                <li><a href="#"><span class="uk-icon-sitemap"></span> Expose port</a></li>
+                <li><a href="#"><span class="icon uk-icon-clone"></span>Mount</a></li>
+                <li><a href="#"><span class="icon uk-icon-link"></span>Link</a></li>
+                <li><a href="#"><span class="icon uk-icon-refresh"></span>Restart Policy</a></li>
+            </ul>
+            <ul id="tab-content" class="uk-switcher">
+                <!-- Runtime -->
+                <li class="uk-active" >
+                    <table class="uk-table uk-overflow-container uk-panel-box">
+                        <tr>
+                            <td class="dialogField uk-width-1-10 ">User:</td>
+                            <td><input class="uk-form-width-large"
+                                       placeholder="e.g. nginx" v-model="createParams.user"/></td>
+                        </tr>
+                        <tr>
+                            <td class="dialogField">WorkDir:</td>
+                            <td><input class="uk-form-width-large"
+                                       placeholder="e.g. /myapp" v-model="createParams.workDir"/></td>
+                        </tr>
+                        <tr>
+                            <td class="dialogField">Command:</td>
+                            <td><input class="uk-form-width-large" type="text"
+                                       placeholder="e.g. /usr/bin/nginx -t -c /mynginx.conf" v-model="createParams.command"/></td>
+                        </tr>
+                        <tr v-if="createParams.entrypoint!=''">
+                            <td class="dialogField">Entry point:</td>
+                            <td><span class="uk-text-bold uk-text-primary">{{createParams.entrypoint}}</span></td>
+                        </tr>
+                        <tr>
+                            <td class="dialogField">Tty:</td>
+                            <td>
+                                <c-switch bind="createParams.tty" :switch='{"ON":true,"OFF":false}'
+                                          theme="uk-button-success uk-button-small"></c-switch>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="dialogField">Interactive:</td>
+                            <td>
+                                <c-switch bind="createParams.openStdin" :switch='{"ON":true,"OFF":false}'
+                                          theme="uk-button-success uk-button-small"></c-switch>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="dialogField">Env:</td>
+                            <td>
+                                <div class="uk-panel  uk-width-10-10">
+                                    <ul class="uk-list uk-list-line ">
+                                        <li>
+                                            <button class="uk-button uk-button-primary uk-button-small" @click="createParams.env.add()">
+                                                <i class="uk-icon-plus-square"></i> Add Env</button>
+                                        </li>
+                                        <li v-for="(env,index) in createParams.env.envs">
+                                            <div class="uk-grid">
+                                                <div class="uk-text- uk-width-9-10">
+                                                    <input class="uk-form-width-medium uk-text-center" type="text"
+                                                           :disabled="!env.canRemove"
+                                                           placeholder="e.g. HOME" v-model="env.key"/>
+                                                    &nbsp;=&nbsp;
+                                                    <input class="uk-form-width-large uk-text-center" type="text"
+                                                           :disabled="!env.canRemove"
+                                                           placeholder="e.g. /root" v-model="env.value"/>
+                                                </div>
+                                                <div class="uk-width-1-10" v-if="env.canRemove">
+                                                    <a href="#" class="uk-button uk-button-mini uk-button-danger" @click="createParams.env.remove(index)">
+                                                        <span class="uk-icon-trash"></span>
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </td>
+                        </tr>
+
+                    </table>
+                </li>
+                <!-- Resource -->
+                <li>
+                    <table class="uk-table uk-overflow-container uk-panel-box">
+                        <tr>
+                            <td class="dialogField uk-width-1-10">CPU:</td>
+                            <td><input type="number" class="uk-form-width-small uk-text-center"
+                                       placeholder="cpu core count" v-model="createParams.cpu"/></td>
+                        </tr>
+                        <tr>
+                            <td class="dialogField">Memory:</td>
+                            <td><input type="number" class="uk-form-width-small uk-text-center"
+                                       placeholder="memory size (Mb)" v-model="createParams.memory"/></td>
+                        </tr>
+                        <tr>
+                            <td class="dialogField">Network:</td>
+                            <td>
+                                <c-switch bind="createParams.networkDisable" :switch='{"ON":false,"OFF":true}'
+                                          theme="uk-button-primary uk-button-small"></c-switch>
+                                &nbsp;&nbsp;
+                                <select class="uk-form-width-medium"
+                                        v-if="!createParams.networkDisable"
+                                        v-model="createParams.network">
+                                    <option value="">Nothing</option>
+                                    <option v-for="network in networkList" v-if="network.driver!='overlay'"
+                                            :value="network.id|shortString(12)">{{network.name}}
+                                    </option>
+                                </select>
+                            </td>
+                        </tr>
+                    </table>
+                </li>
+
+                <!-- Port -->
+                <li>
+                    <table class="uk-table uk-overflow-container uk-panel-box">
+                        <tr>
+                            <td>
+                                <div class="uk-panel uk-width-10-10">
+                                    <ul class="uk-list uk-list-line ">
+                                        <li>
+                                            <button class="uk-button uk-button-primary uk-button-small" @click="createParams.port.add()">
+                                                <i class="uk-icon-plus-square"></i> Add export port</button>
+                                        </li>
+                                        <li v-for="(port,index) in createParams.port.ports">
+                                            <div class="uk-grid">
+                                                <div class="uk-text- uk-width-9-10">
+                                                    <c-switch :bind="'createParams.port.ports['+index+'].protocol'"
+                                                              :switch='{"TCP":"tcp","UDP":"udp"}'
+                                                              theme="uk-button-success uk-button-mini"></c-switch>
+                                                    &nbsp;&nbsp;
+                                                    <input class="uk-form-width-medium" type="number"
+                                                           placeholder="e.g. 80 on host" v-model="port.hostPort"/>
+                                                    &nbsp;:&nbsp;
+                                                    <input class="uk-form-width-medium" type="number"
+                                                           :disabled="!port.canRemove"
+                                                           placeholder="e.g. 80 on container" v-model="port.containerPort"/>
+
+                                                </div>
+                                                <div class="uk-width-1-10" v-if="port.canRemove">
+                                                    <a href="#" class="uk-button uk-button-mini uk-button-danger" @click="createParams.port.remove(index)">
+                                                        <span class="uk-icon-trash"></span>
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+                </li>
+
+                <!-- Volume -->
+                <li>
+                    <table class="uk-table uk-overflow-container uk-panel-box">
+                        <tr>
+                            <td>
+                                <div class="uk-panel  uk-width-10-10">
+                                    <ul class="uk-list uk-list-line ">
+                                        <li>
+                                            <button class="uk-button uk-button-primary uk-button-small" @click="createParams.volume.add()">
+                                                <i class="uk-icon-plus-square"></i> Add mount</button>
+                                        </li>
+                                        <li v-for="(volume,index) in createParams.volume.volumes">
+                                            <div class="uk-grid">
+                                                <div class="uk-text- uk-width-9-10">
+                                                    <c-switch :bind="'createParams.volume.volumes['+index+'].type'"
+                                                              :switch='{"Volume":"volume","Bind":"bind","Tmpfs":"tmpfs"}'
+                                                              theme="uk-button-success uk-button-mini"
+                                                              @click="volume.volumeSource=''"></c-switch>
+                                                    &nbsp;&nbsp;
+                                                    <select class="uk-form-width-medium"
+                                                            v-if="volume.type=='volume'"
+                                                            v-model="volume.volumeSource">
+                                                        <option value="">Nothing</option>
+                                                        <option v-for="volume in volumeList"
+                                                                :value="volume.name">{{volume.name}}
+                                                        </option>
+                                                    </select>
+                                                    <input class="uk-form-width-medium uk-text-center" type="text"
+                                                           v-if="volume.type=='bind'"
+                                                           placeholder="e.g. /root" v-model="volume.volumeSource"/>
+                                                    <input class="uk-form-width-medium uk-text-center" type="text"
+                                                           v-if="volume.type=='tmpfs'" disabled
+                                                           value="/tmp"/>
+                                                    &nbsp;:&nbsp;
+                                                    <input class="uk-form-width-medium uk-text-center" type="text"
+                                                           :disabled="!volume.canRemove"
+                                                           placeholder="e.g. temp" v-model="volume.volumeTarget"/>
+                                                </div>
+                                                <div class="uk-width-1-10" v-if="volume.canRemove">
+                                                    <a href="#" class="uk-button uk-button-mini uk-button-danger" @click="createParams.volume.remove(index)">
+                                                        <span class="uk-icon-trash"></span>
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+                </li>
+
+                <!-- Link -->
+                <li>
+                    <table class="uk-table uk-overflow-container uk-panel-box">
+                        <tr>
+                            <td>
+                                <div class="uk-panel  uk-width-10-10">
+                                    <ul class="uk-list uk-list-line ">
+                                        <li>
+                                            <button class="uk-button uk-button-primary uk-button-small" @click="createParams.link.add()">
+                                                <i class="uk-icon-plus-square"></i> Add link</button>
+                                        </li>
+                                        <li v-for="(link,index) in createParams.link.links">
+                                            <div class="uk-grid">
+                                                <div class="uk-text- uk-width-9-10">
+                                                    <select class="uk-form-width-medium uk-text-center" v-model="link.linkContainer">
+                                                        <option value="">Nothing</option>
+                                                        <option v-for="container in containerList"
+                                                                :value="container.id | shortString(12)">
+                                                            {{container.names[0]|delFirestChar|shortString(18)}}
+                                                        </option>
+                                                    </select>
+                                                    &nbsp;:&nbsp;
+                                                    <input class="uk-form-width-medium uk-text-center" type="text"
+                                                           placeholder="e.g. dockerfly" v-model="link.linkName"/>
+                                                </div>
+                                                <div class="uk-width-1-10">
+                                                    <a href="#" class="uk-button uk-button-mini uk-button-danger" @click="createParams.link.remove(index)">
+                                                        <span class="uk-icon-trash"></span>
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+                </li>
+                <!-- Restart policy -->
+                <li>
+                    <table class="uk-table uk-overflow-container uk-panel-box">
+                        <tr>
+                            <td class="uk-width-1-10 dialogField">Policy: </td>
+                            <td>
+                                    <c-switch bind="createParams.restartPolicy.name"
+                                              :switch='{"No":"no","Always":"always","UnlessStopped":"unless-stopped","OnFailure":"on-failure"}'
+                                              theme="uk-button-primary uk-button-small"></c-switch>
+                            </td>
+                        </tr>
+                        <tr v-if="createParams.restartPolicy.name=='on-failure'">
+                            <td class="dialogField">Retry count: </td>
+                            <td>
+                                <input type="number" class="uk-form-width-small"
+                                       v-model="createParams.restartPolicy.maximumRetryCount" />
+                            </td>
+                        </tr>
+                    </table>
+                </li>
+            </ul>
+            <table class="uk-table uk-overflow-container uk-panel-box">
+                <tr>
+                    <td class="dialogField" colspan="2">
+                        <a href="#"  class="uk-button uk-button-primary" @click="create()">Create</a>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div class="uk-width-6-6">
+        <div style="min-height:40px;" class="uk-text-center uk-margin-bottom">
+            <div><img height="27" width="120" src="../../img/logo.png"/></div>
+            <div>Copyright <span class="uk-icon-copyright"></span> Voovan Vsetful</div>
+            <div>Powered by Voovan open source framework.</div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

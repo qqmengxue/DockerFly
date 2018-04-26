@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="../../img/favicon.ico"/>
+<link rel="stylesheet" href="../../css/uikit/uikit.css"/>
+<script src="../../js/common/jquery.min.js"></script>
+<script src="../../js/common/vue.min.js"></script>
+<script src="../../js/common/uikit.js"></script>
+<script src="../../js/component/switch.js"></script>
+
+<link rel="stylesheet" href="../../css/main.css"/>
+<script lang="javascript" src="../../js/utils.js"></script>
+<script lang="javascript" src="../../js/docker.js"></script>
+<script lang="javascript">
+    doImport("org.voovan.docker.command.Container.CmdContainerList")
+    doImport("org.voovan.docker.command.Container.CmdContainerStart")
+    doImport("org.voovan.docker.command.Container.CmdContainerStop")
+    doImport("org.voovan.docker.command.Container.CmdContainerRemove")
+    doImport("org.voovan.docker.command.Container.CmdContainerPause")
+    doImport("org.voovan.docker.command.Container.CmdContainerUnPause")
+    doImport("org.voovan.docker.command.Container.CmdContainerUnPause")
+    doImport("org.voovan.docker.command.Container.CmdContainerCommit")
+    doImport("org.voovan.docker.command.Container.CmdContainerKill")
+    doImport("org.voovan.docker.command.Container.CmdContainerRename")
+
+    doImport("org.voovan.docker.command.Network.CmdNetworkConnect")
+    doImport("org.voovan.docker.command.Network.CmdNetworkDisConnect")
+
+
+    function init() {
+        containerListVue = new Vue({
+            el: '#ContainerApp',
+            data: {
+                containerList: null,
+                networkToConnect: null,
+                queryParams:{
+                    name:"",
+                    id:"",
+                    status:"All"
+                },
+                commitParams:{
+                    container:null,
+                    tag:"",
+                    comment:"",
+                    author:"",
+                    pause:true
+                }
+            },
+            computed:{
+                networkList: function(){
+                   return getNetworks();
+                }
+            },
+            methods: {
+                //查询方法
+                query: function () {
+                    try {
+                        var cmdContainerList = new CmdContainerList();
+                        connect(cmdContainerList);
+                        cmdContainerList.all(true)
+
+                        if (this.queryParams.name != "") {
+                            cmdContainerList.name([this.queryParams.name]);
+                        }
+
+                        if (this.queryParams.id != "") {
+                            cmdContainerList.id([this.queryParams.id]);
+                        }
+
+                        if (this.queryParams.status != "All") {
+                            cmdContainerList.status("[" + this.queryParams.status + "]");
+                        }
+
+                        //cmdContainerList.label("author","helyho");
+                        this.containerList = cmdContainerList.send().sortBy("id", true);
+                        cmdContainerList.close();
+                        cmdContainerList.release();
+                    } catch (e) {
+                        alertError(e)
+                    }
+                },
+
+                //启动方法
+                start: function (container) {
+                    try {
+                        if (container.state == "paused") {
+                            var cmdContainerUnPause = new CmdContainerUnPause(container.id);
+                            connect(cmdContainerUnPause);
+                            cmdContainerUnPause.send();
+                            cmdContainerUnPause.close();
+                            cmdContainerUnPause.release();
+                        } else {
+                            var cmdContainerStart = new CmdContainerStart(container.id);
+                            connect(cmdContainerStart);
+
+                            var blockDialog = openBlockDialog("Starting Container...");
+                            cmdContainerStart.send(function(msg){
+                                blockDialog.hide();
+                                alert("<span class='uk-text-large uk-text-primary'>Container <span class='uk-text-large uk-text-danger'>"+delFirestChar(container.names[0])+"</span> started.</span>")
+                                cmdContainerStart.close();
+                                cmdContainerStart.release();
+                                containerListVue.query();
+                            }, function(status, errMsg){
+                                blockDialog.hide();
+                                var errorObj = eval("errorObj="+errMsg)
+                                alertError("Kill container "+delFirestChar(container.names[0])+" failed <br/>"+errorObj.errMsg);
+                                cmdContainerStart.close();
+                                cmdContainerStart.release();
+                            });
+                        }
+                        this.query()
+                    } catch (e) {
+                        alertError(e)
+                    }
+                },
+
+                //停止方法
+                stop: function (container) {
+                    try {
+                        var cmdContainerStop = new CmdContainerStop(container.id);
+                        connect(cmdContainerStop);
+                        cmdContainerStop.waitForKill(30);
+
+                        var blockDialog = openBlockDialog("Stoping Container...");
+                        cmdContainerStop.send(function(msg){
+                            blockDialog.hide();
+                            alert("<span class='uk-text-large uk-text-primary'>Container <span class='uk-text-large uk-text-danger'>"+delFirestChar(container.names[0])+"</span> stoped.</span>")
+                            cmdContainerStop.close();
+                            cmdContainerStop.release();
+                            containerListVue.query();
+                        }, function(status, errMsg){
+                            blockDialog.hide();
+                            alertError("Stop container "+delFirestChar(container.names[0])+" failed, Docker still try to stoping this container, you can wait a moment and then refresh this page or try to Kill this container ");
+                            cmdContainerStop.close();
+                            cmdContainerStop.release();
+                            containerListVue.query();
+                        });
+                    } catch (e) {
+                        alertError(e)
+                    }
+                },
+                //停止方法
+                kill: function (container) {
+                    try {
+                        var cmdContainerKill = new CmdContainerKill(container.id);
+                        connect(cmdContainerKill);
+
+                        var blockDialog = openBlockDialog("Killing Container...");
+                        cmdContainerKill.send(function(msg){
+                            blockDialog.hide();
+                            alert("<span class='uk-text-large uk-text-primary'>Container <span class='uk-text-large uk-text-danger'>"+delFirestChar(container.names[0])+"</span> killed.</span>")
+                            cmdContainerKill.close();
+                            cmdContainerKill.release();
+                            containerListVue.query();
+                        }, function(status, errMsg){
+                            blockDialog.hide();
+                            var errorObj = eval("errorObj="+errMsg)
+                            alertError("Kill container "+delFirestChar(container.names[0])+" failed <br/>"+errorObj.errMsg);
+                            cmdContainerKill.close();
+                            cmdContainerKill.release();
+                        });
+                    } catch (e) {
+                        alertError(e)
+                    }
+                },
+
+                //移除方法
+                remove: function (container) {
+                    try{
+                        name = container.names[0]
+                        id = container.id
+
+                        UIkit.modal.confirm("<span class='uk-text-large uk-text-danger'>Are you sure to remove ?</span><hr/> " +
+                            "<span class='uk-text-large uk-text-primary'> " + delFirestChar(name) + " </span> ", function () {
+                            try {
+                                var cmdContainerRemove = new CmdContainerRemove(id);
+                                connect(cmdContainerRemove);
+
+                                var blockDialog = openBlockDialog("Remove Container...");
+                                cmdContainerRemove.send(function(msg){
+                                    blockDialog.hide();
+                                    alert("<span class='uk-text-large uk-text-primary'>Container <span class='uk-text-large uk-text-danger'>"+delFirestChar(container.names[0])+"</span> removed.</span>")
+                                    cmdContainerRemove.close();
+                                    cmdContainerRemove.release();
+                                    containerListVue.query();
+                                }, function(status, errMsg){
+                                    blockDialog.hide();
+                                    var errorObj = eval("errorObj="+errMsg)
+                                    alertError("Remove container "+delFirestChar(container.names[0])+" failed <br/>"+errorObj.errMsg);
+                                    cmdContainerRemove.close();
+                                    cmdContainerRemove.release();
+                                });
+
+                            } catch (e) {
+                                alertError(e)
+                            }
+                        });
+                    } catch (e) {
+                        alertError(e)
+                    }
+                },
+
+                //暂停和恢复方法
+                pause: function (container) {
+                    try {
+                        var cmdContainerPause = new CmdContainerPause(container.id);
+                        connect(cmdContainerPause);
+                        cmdContainerPause.send();
+                        cmdContainerPause.close();
+                        cmdContainerPause.release();
+                    } catch (e) {
+                        alertError(e)
+                    }
+                    this.query()
+                },
+
+                //连接到网络
+                connect: function(container){
+
+                    var selector = '<span class="uk-form">' +
+                                        '<select class="uk-form uk-form-width-medium" id="networkToConnect">';
+                    selector = selector + '<option value="">Nothing</option>';
+                    for(var index in this.networkList) {
+                        var network = this.networkList[index]
+                        if(typeof(network)!="function")
+                        selector = selector + '<option value="'+network.id+'">'+network.name+'</option>';
+                    }
+                    selector = selector + '</select></span>';
+                    try {
+                        UIkit.modal.confirm("<span class='uk-text-large uk-text-primary uk-text-bold'>Choice which network to connect ?&nbsp;&nbsp;</span><hr/>"+
+                            selector, function () {
+                            try {
+                                var cmdNetworkConnect = new CmdNetworkConnect($('#networkToConnect').val());
+                                connect(cmdNetworkConnect);
+                                cmdNetworkConnect.container(container.id)
+                                cmdNetworkConnect.send();
+                                cmdNetworkConnect.close();
+                                cmdNetworkConnect.release();
+                                containerListVue.query();
+                            } catch (e) {
+                                alertError(e)
+                            }
+                        });
+
+
+                    } catch (e) {
+                        alertError(e)
+                    }
+                    this.query()
+                },
+
+                //断开网络
+                disconnect: function(container){
+
+                    var selector = '<span class="uk-form">' +
+                                        '<select class="uk-form uk-form-width-medium" id="networkToDisconnect">';
+                    for(var network in container.networkSettings.networks) {
+                        selector = selector + '<option value="'+container.networkSettings.networks[network].networkId+'">'+network+'</option>';
+                    }
+                    selector = selector + '</select></span>';
+                    try {
+                        UIkit.modal.confirm("<span class='uk-text-large uk-text-danger uk-text-bold'>Choice which network to disconnect  &nbsp;&nbsp;</span><hr/>"+
+                            selector, function () {
+                            try {
+                                var cmdNetworkDisConnect = new CmdNetworkDisConnect($('#networkToDisconnect').val());
+                                connect(cmdNetworkDisConnect);
+                                cmdNetworkDisConnect.container(container.id)
+                                cmdNetworkDisConnect.send();
+                                cmdNetworkDisConnect.close();
+                                cmdNetworkDisConnect.release();
+                                containerListVue.query();
+                            } catch (e) {
+                                alertError(e)
+                            }
+                        });
+
+
+                    } catch (e) {
+                        alertError(e)
+                    }
+                    this.query()
+                },
+
+                //打开提交窗口
+                openCommitDialog:function(container){
+                    this.commitParams.container = container;
+                    openDialog("commitDialog")
+                },
+
+                //提交
+                commit: function(){
+                    try{
+                        if(this.commitParams.tag==""){
+                            return;
+                        }
+
+                        var cmdContainerCommit = new CmdContainerCommit(this.commitParams.container.id);
+                        var tagArr = this.commitParams.tag.split(":");
+                        if(tagArr.length == 1){
+                            tagArr.push("latest");
+                        }
+                        cmdContainerCommit.repo(tagArr[0]);
+                        cmdContainerCommit.tag(tagArr[1]);
+                        cmdContainerCommit.comment(this.commitParams.comment);
+                        cmdContainerCommit.author(this.commitParams.author);
+                        cmdContainerCommit.pause(this.commitParams.pause);
+                        connect(cmdContainerCommit);
+
+                        var blockDialog = openBlockDialog("Commit Container...");
+                        cmdContainerCommit.send(function(msg){
+                            blockDialog.hide();
+                            alert("<span class='uk-text-large uk-text-primary'>Container commited success.</span>")
+                            cmdContainerCommit.close();
+                            cmdContainerCommit.release();
+                            closeDialog("commitDialog");
+                        }, function(status, errMsg){
+                            blockDialog.hide();
+                            var errorObj = eval("errorObj="+errMsg)
+                            alertError("Commit container "+delFirestChar(container.names[0])+" failed <br/>"+errorObj.errMsg);
+                            cmdContainerCommit.close();
+                            cmdContainerCommit.release();
+                            closeDialog("commitDialog");
+                        });
+
+                    } catch (e) {
+                        alertError(e)
+                    }
+                },
+
+                rename: function(container){
+                    UIkit.modal.prompt("<span class='uk-text-large uk-text-primary uk-text-bold'>Replicas:</span>", delFirestChar(container.names[0]), function(newvalue){
+                        try {
+                            var cmdContainerRename = new CmdContainerRename(container.id);
+                            connect(cmdContainerRename);
+                            cmdContainerRename.newName(newvalue)
+                            cmdContainerRename.send();
+                            cmdContainerRename.close();
+                            cmdContainerRename.release();
+                            containerListVue.query();
+                        } catch (e) {
+                            alertError(e)
+                        }
+                    });
+                }
+
+            }
+        });
+        var urlId = getQueryString("id");
+        containerListVue.queryParams.id = urlId==null?"" : urlId;
+        if(urlId != null){
+            $("#query").hide();
+        }
+        containerListVue.query()
+    }
+</script>
+<body onload="init()" class="frameBody">
+<div id="ContainerApp" class="uk-grid" style="display: none" v-show="this.containerList!=null">
+    <div class="uk-width-6-6">
+        <div class="uk-panel"></div>
+        <h3></h3>
+        <div class="uk-grid uk-margin">
+            <div class="uk-width-1-2">
+                <h3 class="uk-text-middle">
+                    <span class="icon uk-icon-desktop"></span> Container manager
+                </h3>
+            </div>
+            <div class="uk-width-1-2 uk-text-right">
+                <a href="list.html"><span class="uk-icon-refresh"></span></a>
+            </div>
+        </div>
+        <div id="query" class="uk-panel uk-panel-box uk-text-bold">
+            <div class="uk-grid">
+                <div class="uk-width-5-6 uk-form">
+                    <span class="mr5">Id:</span>
+                    <input class="uk-form-width-medium"
+                           type="text" placeholder="container  id" v-model="queryParams.id">
+                    <span class="mr5">Name:</span>
+                    <input class="uk-form-width-medium"
+                           type="text" placeholder="container name" v-model="queryParams.name">
+                    <span class="mr5">Status:</span>
+                    <select v-model="queryParams.status">
+                        <option value="All">All</option>
+                        <option value="created">created</option>
+                        <option value="restarting">restarting</option>
+                        <option value="running">running</option>
+                        <option value="paused">paused</option>
+                        <option value="exited">exited</option>
+                        <option value="dead">dead</option>
+                    </select>
+                    <a class="uk-button uk-button-small" @click="query()"><i class="uk-icon-search"></i></a>
+                </div>
+                <div class="uk-width-1-6 uk-text-right">
+                    <a href="create.html" class="uk-button uk-button-small uk-button-primary"><i class="uk-icon-plus-square"></i> </a>
+                </div>
+            </div>
+        </div>
+        <table id="containerList" class="uk-table uk-overflow-container uk-panel-box" style="table-layout: fixed; word-wrap: break-word">
+            <thead>
+            <tr>
+                <th class="uk-text-center table_colume_index">NO.</th>
+                <th>Name</th>
+                <th>Image</th>
+                <th>Network & IP</th>
+                <th>Export Port</th>
+                <th class="uk-text-center">Status</th>
+                <th class="uk-text-center">Operation</th>
+            </tr>
+            </thead>
+
+            <tbody>
+            <tr v-for="(container,index) in containerList">
+                <td class="uk-text-center uk-text-middle uk-text-small">{{index}}</td>
+                <td class="uk-text-bold uk-text-middle uk-text-primary uk-text-small"
+                   :title="container.names[0]|delFirestChar">
+                    <span v-if="container.labels['com.docker.swarm.task']==''"
+                          class="icon uk-icon-gears uk-text-danger" title="Swarm container"></span>
+                    <span v-if="container.labels['com.docker.swarm.task']==undefined"
+                          class="icon uk-icon-desktop uk-text-success uk-text-small" title="Stander container"></span>
+                     {{container.names[0]|delFirestChar|shortString(20)}}
+                </td>
+                <td class="uk-text-middle ">
+                    <a :href="'../image/viewer.html?id='+container.imageId"
+                    class="uk-text-warning uk-text-bold uk-text-small"
+                       :title="container.image">
+                        {{container.image | shortString(64)}}
+                    </a>
+                </td>
+                <td class="uk-text-middle">
+                    <div v-for="(network,networkName) in container.networkSettings.networks">
+                        <code>
+                            <a :href="'../network/viewer.html?id='+network.networkId"
+                            target="view">
+                                {{networkName}}{{network.ipAddress==""?"":":"}}{{network.ipAddress}}
+                            </a>
+                        </code>
+                    </div>
+                </td>
+                <td class="uk-text-middle">
+                    <div v-for="port in container.ports" v-if="port.publicPort!=null">
+                        <span class="uk-icon-external-link uk-text-primary uk-text-small"></span>
+                        <code>{{port.type}}/{{port.privatePort}}:{{port.publicPort}}</code>
+                    </div>
+                </td>
+                <td :class="container.state" class="uk-text-center uk-text-bold uk-text-middle">
+                    {{container.state.toUpperCase()}}
+                </td>
+                <td class="uk-text-center uk-text-middle">
+                    <div class="uk-button-group">
+                        <a :href="'viewer.html?id='+container.id" class="uk-button uk-button-primary uk-button-small">
+                            <span class="uk-icon-list-alt"></span> View
+                        </a>
+                        <div data-uk-dropdown="{mode:'click'}">
+                            <!-- 触发下拉菜单的按钮 -->
+                            <a href="" class="uk-button uk-button-primary uk-button-small"><span class="uk-icon-caret-down"></span></a>
+
+                            <!-- 下拉菜单 -->
+                            <div class="uk-dropdown uk-dropdown-small">
+                                <ul class="uk-nav uk-nav-dropdown uk-text-left">
+                                    <li v-if="container.state!='running' || container.state=='paused'">
+                                        <a href="#" class=" uk-text-primary"
+                                           @click="start(container)"><span class="uk-icon-play"></span> Start</a></li>
+                                    <li v-if="container.state=='running'">
+                                        <a href="#" class=" uk-text-warning"
+                                           @click="stop(container)"><span class="uk-icon-stop"></span> Stop</a></li>
+                                    <li v-if="container.state=='running'">
+                                        <a href="#" class=" uk-text-danger"
+                                           @click="kill(container)"><span class="uk-icon-flash"></span>  Kill</a></li>
+                                    <li v-if="container.state=='running'">
+                                        <a href="#" class=" uk-text-success"
+                                           @click="pause(container)"><span class="uk-icon-pause"></span> Pause</a></li>
+                                    <li><a href="#" @click="remove(container)"
+                                           class=" uk-text-danger"><span class="uk-icon-trash"></span> Remove</a></li>
+                                    <li class="uk-nav-divider" v-if="container.state=='running'"></li>
+                                    <li v-if="container.state=='running'">
+                                        <a href="#" class=" uk-text-primary"
+                                           @click="connect(container)"><span class="uk-icon-link"></span> Connect</a></li>
+                                    <li v-if="container.state=='running'">
+                                        <a href="#" class=" uk-text-warning"
+                                           @click="disconnect(container)"><span class="uk-icon-chain-broken"></span> Disconnect</a></li>
+                                    <li class="uk-nav-divider"></li>
+                                    <li>
+                                        <a href="#" class=" uk-text-success"
+                                           @click="rename(container)"><span class="uk-icon-edit"></span> Rename</a></li>
+                                    <li>
+                                        <a href="#" class=" uk-text-primary"
+                                           @click="openCommitDialog(container)"><span class="uk-icon-tag"></span> Commit</a></li>
+                                </ul>
+                            </div>
+
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="commitDialog" class="uk-modal">
+        <div class="uk-modal-dialog uk-overflow-container">
+            <a href="#" class="uk-modal-close uk-close uk-close-alt"></a>
+            <div class="uk-modal-header"><h2 class="uk-text-success">Commit container </h2></div>
+            <div class="uk-form">
+                <table class="uk-table uk-overflow-container uk-panel-box">
+                    <tr>
+                        <td class="dialogField"> Tag:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="e.g. dockerfly:latest" v-model="commitParams.tag"/></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Pause:</td>
+                        <td><c-switch :bind="'commitParams.pause'"
+                                      :switch='{"ON":true,"OFF":false}'
+                                      theme="uk-button-success uk-button-small"></c-switch></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Author:</td>
+                        <td><input class="uk-form-width-medium" type="text"
+                                   placeholder="e.g. voovan" v-model="commitParams.author"/></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField">Comment:</td>
+                        <td><textarea style="width:300px;height: 80px" placeholder="e.g. something to introduce"
+                                      v-model="commitParams.comment"></textarea></td>
+                    </tr>
+                    <tr>
+                        <td class="dialogField" colspan="2">
+                            <a class="uk-button uk-button-primary" @click="commit()">Commit</a>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="uk-width-6-6">
+        <div style="min-height:40px;" class="uk-text-center uk-margin-bottom">
+            <div><img height="27" width="120" src="../../img/logo.png"/></div>
+            <div>Copyright <span class="uk-icon-copyright"></span> Voovan Vsetful</div>
+            <div>Powered by Voovan open source framework.</div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="../../img/favicon.ico"/>
+<link rel="stylesheet" href="../../css/uikit/uikit.css"/>
+<script src="../../js/common/jquery.min.js"></script>
+<script src="../../js/common/vue.min.js"></script>
+<script src="../../js/common/uikit.js"></script>
+
+<link rel="stylesheet" href="../../css/main.css"/>
+<script lang="javascript" src="../../js/utils.js"></script>
+<script lang="javascript" src="../../js/docker.js"></script>
+<script lang="javascript">
+    doImport("org.voovan.docker.command.Service.CmdServiceCreate")
+    doImport("org.voovan.docker.command.Service.CmdServiceList")
+    doImport("org.voovan.docker.command.Service.CmdServiceRemove")
+    doImport("org.voovan.docker.command.Service.CmdServiceUpdate")
+
+    function init() {
+        serviceListVue = new Vue({
+            el: '#ServiceApp',
+            data: {
+                serviceList: null,
+                servicdTaskCountList:{},
+                queryParams:{
+                    name:"",
+                    id:"",
+                    status:"All"
+                }
+            },
+            computed:{
+                networks: function(){
+                    try {
+                        return getNetworksIdAndName();
+                    } catch (e) {
+                        alertError(e)
+                    }
+                }
+            },
+            methods: {
+                //查询方法
+                query: function () {
+                    try {
+                        var cmdServiceList = new CmdServiceList();
+                        connect(cmdServiceList);
+
+                        if (this.queryParams.id != "") {
+                            cmdServiceList.id([this.queryParams.id]);
+                        }
+
+                        if (this.queryParams.name != "") {
+                            cmdServiceList.name([this.queryParams.name]);
+                        }
+
+                        //cmdServiceList.label("author","helyho");
+                        this.serviceList = cmdServiceList.send().sortBy("id", true);
+                        cmdServiceList.close();
+                        cmdServiceList.release();
+                    } catch (e) {
+                        alertError(e)
+                    }
+
+                    //读取并统计任务数
+                    try {
+
+                        if(this.serviceList==null){
+                            return;
+                        }
+
+                        var taskList = getTaskList();
+                        var servicdTaskCountList = {};
+                        if(taskList==null){
+                            return;
+                        }
+
+                        for(var i=0;i<taskList.length;i++) {
+                            task = taskList[i];
+                            if (servicdTaskCountList[task.serviceId] == undefined) {
+                                servicdTaskCountList[task.serviceId] = {"running":0,"others":0};
+                            }
+
+                            if(task.status.state == "running") {
+                                servicdTaskCountList[task.serviceId].running = servicdTaskCountList[task.serviceId].running + 1;
+                            }else{
+                                servicdTaskCountList[task.serviceId].others = servicdTaskCountList[task.serviceId].others + 1;
+                            }
+                        }
+
+                        this.servicdTaskCountList = servicdTaskCountList;
+                    } catch (e) {
+                        alertError(e)
+                    }
+                },
+
+                loadTask: function(index){
+                    if($("#taskList"+index).attr("class").indexOf("uk-hidden") >= 0 ) {
+                        var service = this.serviceList[index];
+                        try {
+                            var taskList = converTask(getTaskList(service.id).sortBy("slot"));
+                            this.$set(service, "tasks", taskList);
+                        } catch (e) {
+                            alertError(e)
+                        }
+                    }
+                },
+
+                //移除方法
+                remove: function (service) {
+                    try{
+                        name = service.spec.name;
+                        id = service.id
+
+                        UIkit.modal.confirm("<span class='uk-text-large uk-text-danger'>Are you sure to remove ?</span><hr/>" +
+                            "<span class='uk-text-large uk-text-primary'> " + name + " </span> ", function () {
+                            try {
+                                var cmdServiceRemove = new CmdServiceRemove(id);
+                                connect(cmdServiceRemove);
+                                cmdServiceRemove.send();
+                                cmdServiceRemove.close();
+                                cmdServiceRemove.release();
+                                serviceListVue.query();
+                            } catch (e) {
+                                alertError(e)
+                            }
+                        });
+                    } catch (e) {
+                        alertError(e)
+                    }
+                },
+
+                scale: function(service){
+                    UIkit.modal.prompt("<span class='uk-text-large uk-text-primary uk-text-bold'>Replicas:</span>", service.spec.mode.replicated.replicas, function(newvalue){
+                        try {
+                            var cmdServiceUpdate = new CmdServiceUpdate(service);
+                            connect(cmdServiceUpdate);
+                            cmdServiceUpdate.replicate(newvalue)
+                            cmdServiceUpdate.send();
+                            cmdServiceUpdate.close();
+                            cmdServiceUpdate.release();
+                            serviceListVue.query();
+                        } catch (e) {
+                            alertError(e)
+                        }
+                    });
+                }
+            }
+        });
+        var urlId = getQueryString("id");
+        serviceListVue.queryParams.id = urlId==null?"" : urlId;
+        if(urlId != null){
+            $("#query").hide();
+        }
+        serviceListVue.query()
+    }
+</script>
+<body onload="init()" class="frameBody">
+<div id="ServiceApp" class="uk-grid" style="display: none" v-show="this.serviceList!=null">
+    <div class="uk-width-6-6">
+        <div class="uk-panel"></div>
+        <h3></h3>
+        <div class="uk-grid uk-margin">
+            <div class="uk-width-1-2">
+                <h3 class="uk-text-middle">
+                    <span class="icon uk-icon-gears"></span> Service manager
+                </h3>
+            </div>
+            <div class="uk-width-1-2 uk-text-right">
+                <a href="list.html"><span class="uk-icon-refresh"></span></a>
+            </div>
+        </div>
+        <div id="query" class="uk-panel uk-panel-box uk-text-bold">
+            <div class="uk-grid">
+                <div class="uk-width-5-6 uk-form">
+                    <span class="mr5">Id:</span>
+                    <input class="uk-form-width-medium"
+                           type="text" placeholder="service  id" v-model="queryParams.id">
+                    <span class="mr5">Name:</span>
+                    <input class="uk-form-width-medium"
+                           type="text" placeholder="service name" v-model="queryParams.name">
+                    <a class="uk-button uk-button-small" @click="query()"><i class="uk-icon-search"></i></a>
+                </div>
+                <div class="uk-width-1-6 uk-text-right">
+                    <a href="create.html" class="uk-button uk-button-small uk-button-primary"><i class="uk-icon-plus-square"></i> </a>
+                </div>
+            </div>
+        </div>
+        <table id="serviceList" class="uk-table uk-overflow-service uk-panel-box" style="table-layout: fixed; word-wrap: break-word">
+            <thead>
+            <tr>
+                <th class="uk-text-center table_colume_index">NO.</th>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Image</th>
+                <th>Network & IP</th>
+                <th class="uk-text-center">Replicas</th>
+                <th class="uk-text-center">Operation</th>
+            </tr>
+            </thead>
+
+            <tbody v-for="(service,index) in serviceList">
+            <tr>
+                <td class="uk-text-center uk-text-middle uk-text-small">{{index}}</td>
+                <td class="uk-text-bold uk-text-small uk-text-middle uk-text-primary">
+                    <a :data-uk-toggle="'{target:\'#taskList'+index+'\'}'" @click="loadTask(index)"
+                        :title="service.id">
+                        <span class="uk-icon-plus-square-o"></span> {{service.id|shortString(12)}}
+                    </a>
+                </td>
+                <td class="uk-text-bold uk-text-small uk-text-middle uk-text-danger">
+                    {{service.spec.name}}
+                </td>
+                <td class="uk-text-bold uk-text-middle uk-text-warning">
+                    <a :href="'../image/viewer.html?id='+service.spec.taskTemplate.containerSpec.image"
+                       class="uk-text-warning uk-text-bold uk-text-small"
+                       :title="service.spec.taskTemplate.containerSpec.image">
+                        {{service.spec.taskTemplate.containerSpec.image | shortString(64)}}
+                    </a>
+                </td>
+                <td class="uk-text-middle">
+                    <div v-for="virtualIP in service.endpoint.virtualIPs">
+                        <a :href="'../network/viewer.html?id='+virtualIP.networkId"
+                           target="view">
+                        <code>{{networks[virtualIP.networkId]}}:{{virtualIP.addr}}</code>
+                        </a>
+                    </div>
+                </td>
+                <td class="uk-text-middle uk-text-bold uk-text-success uk-text-small">
+                    <span class="uk-text-success">
+                        Running: {{servicdTaskCountList[service.id]==null?"0":servicdTaskCountList[service.id].running}}
+                    </span> <br/>
+                    <span class="uk-text-danger">
+                        Others: {{servicdTaskCountList[service.id]==null?"0":servicdTaskCountList[service.id].others}}
+                    </span> <br/>
+                    <span class="uk-text-primary">
+                        Total: {{service.spec.mode.replicated.replicas}}
+                    </span>
+                </td>
+                <td class="uk-text-center uk-text-middle">
+                    <div class="uk-button-group">
+                        <a :href="'viewer.html?id='+service.id" class="uk-button uk-button-primary uk-button-small">
+                            <span class="uk-icon-list-alt"></span> View
+                        </a>
+                        <div data-uk-dropdown="{mode:'click'}">
+                            <!-- 触发下拉菜单的按钮 -->
+                            <a href="" class="uk-button uk-button-primary uk-button-small"><span class="uk-icon-caret-down"></span></a>
+
+                            <!-- 下拉菜单 -->
+                            <div class="uk-dropdown uk-dropdown-small">
+                                <ul class="uk-nav uk-nav-dropdown uk-text-left">
+                                    <li><a href="#"
+                                           class=" uk-text-primary"
+                                           @click="scale(service)"><span class="uk-icon-sliders"></span> Scale</a></li>
+                                    <li><a href="#" @click="remove(service)"
+                                           class=" uk-text-danger"><span class="uk-icon-trash"></span> Remove</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            <tr :id="'taskList'+index" class="uk-hidden" style="background-color: #FFFFFF">
+                <td colspan="7">
+                    <div class="uk-grid uk-margin-small-left">
+                    <div class="uk-text-right uk-text-primary uk-vertical-align" style="width: 35px; margin-right: 10px;">
+                        <span class="uk-icon-small uk-icon-arrow-right uk-vertical-align-middle"></span>
+                    </div>
+                    <div class="uk-padding-remove" style="width: 92%;" >
+                    <table class="uk-table uk-panel-box  uk-table-condensed">
+                        <tr class="uk-alert">
+                            <td class="uk-text-bold">Task ID</td>
+                            <td class="uk-text-bold">Slot</td>
+                            <td class="uk-text-bold">Node</td>
+                            <td class="uk-text-bold">Container</td>
+                            <td class="uk-text-bold">State</td>
+                            <td class="uk-text-bold">Create</td>
+
+                        </tr>
+                        <tr v-for="(task, index) in service.tasks">
+                            <td class="uk-text-small">{{task.id | shortString(12)}}</td>
+                            <td class="uk-text-small">{{task.slot}}</td>
+                            <td class="uk-text-small">
+                                <a class="uk-text-success" :href="'../node/list.html?id='+task.nodeId">
+                                    <span class="uk-text-warning">{{task.nodeName}}</span> /
+                                    <span class="uk-text-success">{{task.hostname}}</span>
+                                </a>
+                            </td>
+                            <td class="uk-text-small">
+                                <a class="uk-text-danger" :href="'/module/container/list.html?id='+task.status.containerStatus.containerId"
+                                   v-if="task.status.containerStatus.containerName!=null"
+                                   :title="task.status.containerStatus.containerName|delFirestChar">
+                                    <span class="uk-text-success running"></span>
+                                    {{task.status.containerStatus.containerName|delFirestChar|shortString(50)}}
+                                </a>
+                                <span class="uk-text-danger" v-else>
+                                <span class="uk-text-primary stop"></span> {{task.status.containerStatus.containerId|shortString(12)}}
+                                </span>
+                            </td>
+                            <td class="uk-text-small">{{task.status.state}}</td>
+                            <td class="uk-text-small">{{task.createdAt|strToDate}}</td>
+                        </tr>
+                    </table>
+                    </div>
+                    </div>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="uk-width-6-6">
+        <div style="min-height:40px;" class="uk-text-center uk-margin-bottom">
+            <div><img height="27" width="120" src="../../img/logo.png"/></div>
+            <div>Copyright <span class="uk-icon-copyright"></span> Voovan Vsetful</div>
+            <div>Powered by Voovan open source framework.</div>
+            <div></div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

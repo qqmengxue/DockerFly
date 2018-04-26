@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DockerFly</title>
+</head>
+<link rel="shortcut icon" type="image/x-icon" href="img/favicon.ico"/>
+<link rel="stylesheet" href="css/uikit/uikit.css"/>
+<script src="js/common/jquery.min.js"></script>
+<script src="js/common/vue.min.js"></script>
+<script src="js/common/uikit.js"></script>
+
+<link rel="stylesheet" href="css/main.css"/>
+<script lang="javascript" src="js/utils.js"></script>
+<script lang="javascript" src="../../js/docker.js"></script>
+<script lang="javascript">
+    function init() {
+        appVue = new Vue({
+            el: "#app",
+            data:{
+                user: getUser(),
+                isSwarmManager:false
+            },
+            beforeMount: function(){
+                if(this.user == null){
+                    window.location='login.html'
+                }
+                this.resetIsSwarmManager();
+            },
+            methods:{
+                resetIsSwarmManager: function(){
+                    var dockerInfo = getDockerInfo();
+                    this.$set(this, 'isSwarmManager', dockerInfo.swarm.controlAvailable);
+                },
+                changeHost:function(){
+                    setSessionStorage("User",this.user)
+                    var header = "<h3 class='uk-text-primary uk-text-bold'>Change host success</h3>";
+                    var content = "<h4 style='margin: 0px 15px 0px 15px;'>Host changed to <span class='uk-text-bold'>"+
+                        this.user.hosts[this.user.defaultHost].name + "</span> success.</h4>"
+                    alert(header, content)
+                    this.resetIsSwarmManager()
+                    document.moduleFrame.location.reload();
+                },
+                logout: function(){
+                    removeSessionStorage("User");
+                    location="logout.html";
+                }
+            }
+        });
+
+        $(".uk-nav-side").children("li").each(
+            function (index, eli) {
+                $(eli).click(
+                    function (event) {
+                        mainMenuActive(event)
+                    }
+                )
+            }
+        )
+    }
+</script>
+<body onload="init()">
+<div id="app" class="uk-grid">
+    <div class="uk-width-1-6 sidebar">
+        <div class="uk-panel uk-panel-box" style="height: 95%;  background-color: #444;">
+            <h3 class="uk-panel-title"><img src="img/sidebar_logo.png"/></h3>
+            <ul class="uk-nav uk-nav-side uk-nav-parent-icon" data-uk-nav>
+                <h3 class="uk-nav-divider"></h3>
+                <div class="uk-form" style="padding-left: 10px; color:#FFFFFF">
+                    <span class="uk-icon-server uk-margin-small-left uk-margin-small-right uk-text-middle"></span>
+                    <select class="uk-form-width-small" v-model="user.defaultHost" autocomplete="off"
+                        @change="changeHost()">
+                        <option v-for="(host,index) in user.hosts"
+                                :value="index">
+                            <span class="uk-text-bold">{{host.name}}</span>
+                        </option>
+                    </select>
+                </div>
+                <h3 class="uk-nav-divider"></h3>
+                <li class="uk-active" v-if="user.role=='Admin'">
+                    <a href="summary.html" target="moduleFrame"><span class="icon uk-icon-dashboard"></span> Summery</a>
+                </li>
+                <h3 class="uk-nav-divider" v-if="user.role=='Admin'"></h3>
+                <li v-if="user.role=='Admin'">
+                    <a href="swarm.html" target="moduleFrame"><span class="icon uk-icon-connectdevelop"></span> Swarm</a>
+                </li>
+                <li v-if="user.role=='Admin' && isSwarmManager">
+                    <a href="module/node/list.html" target="moduleFrame"><span class="icon uk-icon-cube"></span > Node</a>
+                </li>
+                <li v-if="isSwarmManager" :class="[user.role=='Admin'?'':'uk-active']">
+                    <a href="module/service/list.html" target="moduleFrame"><span class="icon uk-icon-gears"></span> Service</a>
+                </li>
+                <li v-if="user.role=='Admin' && isSwarmManager">
+                    <a href="module/task/list.html" target="moduleFrame"><span class="icon uk-icon-tasks"></span> Task</a>
+                </li>
+                <h3 class="uk-nav-divider"></h3>
+                <li>
+                    <a href="module/container/list.html" target="moduleFrame">
+                    <span class="icon uk-icon-desktop"></span> Contianer
+                    </a>
+                </li>
+                <li>
+                    <a href="module/network/list.html" target="moduleFrame"><span class="icon uk-icon-sitemap"></span> Network</a>
+                </li>
+                <li>
+                    <a href="module/volume/list.html" target="moduleFrame"><span class="icon uk-icon-clone"></span> Volume</a>
+                </li>
+                <li>
+                    <a href="module/image/list.html" target="moduleFrame"><span class="icon uk-icon-object-group"></span> Image</a>
+                </li>
+                <h3 class="uk-nav-divider"></h3>
+                <li>
+                    <a href="setting.html" target="moduleFrame"><span class="icon uk-icon-cog"></span> Setting</a>
+                </li>
+                <li>
+                    <a href="#" @click="logout()"><span class="icon uk-icon-sign-out"></span> Logout</a>
+                </li>
+            </ul>
+        </div>
+    </div>
+    <div class="uk-width-5-6" style="padding:0px;height: 100%">
+        <div style="height: 100%;">
+            <iframe id="moduleFrame" name="moduleFrame" class="uk-width-6-6" style="height: 100%;float:right"
+                    :src="user.role=='Admin'?'summary.html':'/module/service/list.html'"></iframe>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
